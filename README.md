@@ -18,32 +18,32 @@ En dev, les e-mails (codes à 6 chiffres) sont écrits dans `storage/logs/larave
 
 ## Endpoints — préfixe `/api/v1`
 
-| Méthode | Route | Auth | Description |
-|---|---|---|---|
-| POST | `/auth/register` | – | Inscription (201) — champs selon le rôle |
-| POST | `/auth/login` | – | Connexion |
-| POST | `/auth/refresh` | – | Rotation du refresh token |
-| POST | `/auth/forgot-password` | – | Envoie un code (202, réponse identique si l'e-mail n'existe pas) |
-| POST | `/auth/reset-password` | – | `email`, `code`, `password`, `password_confirmation` |
-| POST | `/auth/logout` | Bearer | Ferme la session courante |
-| POST | `/auth/logout-all` | Bearer | Ferme toutes les sessions |
-| POST | `/auth/email/verify` | Bearer | Valide le code reçu par e-mail |
-| POST | `/auth/email/resend` | Bearer | Renvoie le code |
-| GET / PATCH | `/me` | Bearer | Profil courant / mise à jour partielle |
-| PUT | `/me/password` | Bearer | Changement de mot de passe |
-| GET | `/admin/users` | Bearer + `role:admin` | Liste paginée/filtrable |
-| PATCH | `/admin/users/{id}/status` | Bearer + `role:admin` | Suspendre / réactiver |
+| Méthode     | Route                      | Auth                  | Description                                                      |
+| ----------- | -------------------------- | --------------------- | ---------------------------------------------------------------- |
+| POST        | `/auth/register`           | –                     | Inscription (201) — champs selon le rôle                         |
+| POST        | `/auth/login`              | –                     | Connexion                                                        |
+| POST        | `/auth/refresh`            | –                     | Rotation du refresh token                                        |
+| POST        | `/auth/forgot-password`    | –                     | Envoie un code (202, réponse identique si l'e-mail n'existe pas) |
+| POST        | `/auth/reset-password`     | –                     | `email`, `code`, `password`, `password_confirmation`             |
+| POST        | `/auth/logout`             | Bearer                | Ferme la session courante                                        |
+| POST        | `/auth/logout-all`         | Bearer                | Ferme toutes les sessions                                        |
+| POST        | `/auth/email/verify`       | Bearer                | Valide le code reçu par e-mail                                   |
+| POST        | `/auth/email/resend`       | Bearer                | Renvoie le code                                                  |
+| GET / PATCH | `/me`                      | Bearer                | Profil courant / mise à jour partielle                           |
+| PUT         | `/me/password`             | Bearer                | Changement de mot de passe                                       |
+| GET         | `/admin/users`             | Bearer + `role:admin` | Liste paginée/filtrable                                          |
+| PATCH       | `/admin/users/{id}/status` | Bearer + `role:admin` | Suspendre / réactiver                                            |
 
 ### Rôles et champs d'inscription
 
-| `role` | Champs supplémentaires obligatoires |
-|---|---|
-| `client` | – |
-| `driver`, `livreur` | `vehicle_model`, `vehicle_plate` |
-| `artisan` | `specialties[]` ∈ plomberie, maconnerie, electricite, jardinage, piscine, carrelage, nettoyage, peinture, menuiserie, climatisation, serrurerie, toiture |
-| `boutique` | `shop_name`, `specialties[]` ∈ epicerie, marche, wax, beaute, artisanat, saveurs |
-| `restaurant` | `shop_name`, `specialties[]` ∈ senegalaise, ivoirienne, nigeriane, congolaise, ethiopienne, camerounaise |
-| `admin` | non auto-inscriptible |
+| `role`              | Champs supplémentaires obligatoires                                                                                                                      |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client`            | –                                                                                                                                                        |
+| `driver`, `livreur` | `vehicle_model`, `vehicle_plate`                                                                                                                         |
+| `artisan`           | `specialties[]` ∈ plomberie, maconnerie, electricite, jardinage, piscine, carrelage, nettoyage, peinture, menuiserie, climatisation, serrurerie, toiture |
+| `boutique`          | `shop_name`, `specialties[]` ∈ epicerie, marche, wax, beaute, artisanat, saveurs                                                                         |
+| `restaurant`        | `shop_name`, `specialties[]` ∈ senegalaise, ivoirienne, nigeriane, congolaise, ethiopienne, camerounaise                                                 |
+| `admin`             | non auto-inscriptible                                                                                                                                    |
 
 Protéger une route par rôle : `Route::middleware(['auth:api', 'active', 'role:driver,livreur'])`.
 
@@ -59,12 +59,12 @@ Espace livreur : `GET /livreur/dashboard` (accueil : présence, chiffres du jour
 Favoris (client) : `GET /favorites`, `GET /favorites/ids`, `PUT|DELETE /favorites/{shop|product}/{id}` (idempotents).
 Le seeder crée 6 boutiques de démo (`boutique@transport.app`, `plantain@transport.app`, …, mot de passe `123456`) et le code `BIENVENUE10`.
 
-| Qui | Routes |
-|---|---|
-| Public | `GET /shops` (recherche, `category`, `open_now`, `lat/lng/radius_km`), `/shops/{id}`, `/shops/{id}/products`, `/shops/{id}/reviews` |
-| Client (`role:client`) | `POST /orders/quote`, `POST /orders` (en-tête `Idempotency-Key` obligatoire), `GET /orders[/{id}]`, `POST /orders/{id}/cancel`, `POST /orders/{id}/review` |
+| Qui                                        | Routes                                                                                                                                                                                                                                        |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public                                     | `GET /shops` (recherche, `category`, `open_now`, `lat/lng/radius_km`), `/shops/{id}`, `/shops/{id}/products`, `/shops/{id}/reviews`                                                                                                           |
+| Client (`role:client`)                     | `POST /orders/quote`, `POST /orders` (en-tête `Idempotency-Key` obligatoire), `GET /orders[/{id}]`, `POST /orders/{id}/cancel`, `POST /orders/{id}/review`                                                                                    |
 | Boutiquier (`role:boutique`) `/merchant/…` | `shop` (GET/PATCH), `shop/images/{logo\|cover}`, `products` CRUD, `products/{id}/stock`, `products/{id}/images`, `coupons` CRUD, `orders` + `orders/{id}/{accept\|reject\|prepare\|ready\|complete\|cancel}`, `stats`, `reviews` (+ `/reply`) |
-| Livreur (`role:livreur`) `/livreur/…` | `deliveries/available`, `deliveries`, `deliveries/{id}/{accept\|release\|pickup\|deliver}` (PIN client), `earnings` |
+| Livreur (`role:livreur`) `/livreur/…`      | `deliveries/available`, `deliveries`, `deliveries/{id}/{accept\|release\|pickup\|deliver}` (PIN client), `earnings`                                                                                                                           |
 
 Règles : montants en centimes, prix recalculés côté serveur, stock verrouillé (`lockForUpdate`), paiement à la livraison/retrait, machine d'états `pending → accepted → preparing → ready → out_for_delivery → delivered` (+ `rejected`/`cancelled`).
 

@@ -10,14 +10,14 @@ use Illuminate\Support\Facades\Hash;
 
 /**
  * Comptes de demonstration (correspondent a AuthStore.seeded cote Flutter).
- * Uniquement en environnement local : mots de passe faibles volontairement.
+ * Autorises en local et en production : mots de passe faibles, reserves a la demo.
  */
 class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        if (! app()->environment('local')) {
-            $this->command?->warn('Comptes de demo ignores (hors environnement local).');
+        if (! app()->environment(['local', 'production'])) {
+            $this->command?->warn('Comptes de demo ignores (hors environnement local ou production).');
 
             return;
         }

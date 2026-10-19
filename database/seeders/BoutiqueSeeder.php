@@ -13,14 +13,14 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * Boutiques de demonstration (portage de boutique_mock.dart). Environnement local uniquement.
+ * Boutiques de demonstration (portage de boutique_mock.dart). Local et production.
  * La boutique de boutique@transport.app est celle creee par DatabaseSeeder (completee ici).
  */
 class BoutiqueSeeder extends Seeder
 {
     public function run(): void
     {
-        if (! app()->environment('local')) {
+        if (! app()->environment(['local', 'production'])) {
             return;
         }
 

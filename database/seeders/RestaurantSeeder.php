@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * Restaurants de démonstration. Environnement local uniquement.
+ * Restaurants de démonstration. Local et production.
  * Le restaurant de restaurant@transport.app est celui du compte créé par DatabaseSeeder (complété ici).
  * Les photos réutilisent celles des produits du BoutiqueSeeder (ingrédients), faute de photos de plats libres de droits.
  */
@@ -22,7 +22,7 @@ class RestaurantSeeder extends Seeder
 {
     public function run(): void
     {
-        if (! app()->environment('local')) {
+        if (! app()->environment(['local', 'production'])) {
             return;
         }
 

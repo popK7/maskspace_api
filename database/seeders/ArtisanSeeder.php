@@ -14,7 +14,7 @@ class ArtisanSeeder extends Seeder
 {
     public function run(): void
     {
-        if (! app()->environment('local')) {
+        if (! app()->environment(['local', 'production'])) {
             return;
         }
 

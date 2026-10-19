@@ -1,0 +1,36 @@
+# ---------- Image PHP-FPM (code + vendor inclus) ----------
+FROM php:8.3-fpm-bookworm AS app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git unzip libzip-dev libpng-dev libjpeg62-turbo-dev libfreetype6-dev libicu-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j"$(nproc)" pdo_mysql bcmath intl zip gd opcache pcntl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY docker/php.ini /usr/local/etc/php/conf.d/makspace.ini
+COPY docker/php.prod.ini /usr/local/etc/php/conf.d/zz-prod.ini
+
+WORKDIR /var/www/html
+
+# Dépendances d'abord (cache Docker)
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-scripts --no-autoloader --no-interaction --prefer-dist
+
+# Puis le code
+COPY . .
+RUN composer dump-autoload --optimize --no-dev \
+    && mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs storage/app/public bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache
+
+COPY docker/entrypoint.prod.sh /usr/local/bin/entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["php-fpm"]
+
+# ---------- Image Nginx (fichiers publics) ----------
+FROM nginx:1.27-alpine AS web
+COPY docker/nginx.prod.conf /etc/nginx/conf.d/default.conf
+COPY --from=app /var/www/html/public /var/www/html/public

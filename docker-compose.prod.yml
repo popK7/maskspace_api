@@ -1,0 +1,66 @@
+name: maskspace-api
+
+services:
+  app:
+    build: { context: ., dockerfile: Dockerfile.prod, target: app }
+    image: maskspace-api-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUN_MIGRATIONS: "true"
+    volumes:
+      - storage_app:/var/www/html/storage/app
+    depends_on:
+      mysql: { condition: service_healthy }
+    networks: [internal]
+
+  scheduler:
+    image: maskspace-api-app
+    pull_policy: never
+    restart: unless-stopped
+    env_file: .env
+    command: ["php", "artisan", "schedule:work"]
+    volumes:
+      - storage_app:/var/www/html/storage/app
+    depends_on: [app]
+    networks: [internal]
+
+  nginx:
+    build: { context: ., dockerfile: Dockerfile.prod, target: web }
+    restart: unless-stopped
+    volumes:
+      - storage_app:/var/www/html/storage/app:ro
+    depends_on: [app]
+    networks: [internal, proxy]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.maskspace.rule=Host(`${API_HOST}`)
+      - traefik.http.routers.maskspace.entrypoints=websecure
+      - traefik.http.routers.maskspace.tls.certresolver=le
+      - traefik.http.services.maskspace.loadbalancer.server.port=80
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [internal]
+
+volumes:
+  storage_app:
+  mysql_data:
+
+networks:
+  internal:
+  proxy:
+    external: true

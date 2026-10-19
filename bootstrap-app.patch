@@ -1,0 +1,14 @@
+diff --git a/bootstrap/app.php b/bootstrap/app.php
+index 8531bae..ca720ce 100644
+--- a/bootstrap/app.php
++++ b/bootstrap/app.php
+@@ -20,6 +20,9 @@
+         health: '/up',
+     )
+     ->withMiddleware(function (Middleware $middleware): void {
++        // Derrière Traefik (HTTPS) : faire confiance aux en-têtes X-Forwarded-*.
++        $middleware->trustProxies(at: '*');
++
+         $middleware->alias([
+             'role' => EnsureUserHasRole::class,
+             'active' => EnsureAccountIsActive::class,

@@ -1,0 +1,62 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1\Auth;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Auth\ChangePasswordRequest;
+use App\Http\Requests\Auth\UpdateProfileRequest;
+use App\Http\Resources\UserResource;
+use App\Models\User;
+use App\Services\Auth\AuthService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+
+class MeController extends Controller
+{
+    public function __construct(private readonly AuthService $auth) {}
+
+    /** GET /me */
+    public function show(Request $request): UserResource
+    {
+        return new UserResource($request->user()->load('profile'));
+    }
+
+    /** PATCH /me — mise a jour partielle des informations du compte courant. */
+    public function update(UpdateProfileRequest $request): UserResource
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $data = $request->validated();
+
+        DB::transaction(function () use ($user, $data) {
+            $user->fill(array_intersect_key($data, array_flip(['name', 'phone'])))->save();
+
+            $profileData = array_intersect_key(
+                $data,
+                array_flip(['shop_name', 'vehicle_model', 'vehicle_plate', 'specialties']),
+            );
+            if ($profileData !== []) {
+                $user->profile()->updateOrCreate([], $profileData);
+            }
+        });
+
+        return new UserResource($user->fresh('profile'));
+    }
+
+    /** PUT /me/password — change le mot de passe et ferme les AUTRES sessions. */
+    public function updatePassword(ChangePasswordRequest $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $this->auth->changePassword(
+            $user,
+            $request->validated('password'),
+            Auth::guard('api')->payload()->get('sid'),
+        );
+
+        return response()->json(['message' => __('auth.messages.password_changed')]);
+    }
+}

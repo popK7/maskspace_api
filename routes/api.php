@@ -1,6 +1,8 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Admin\AppReleaseController;
 use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
+use App\Http\Controllers\Api\V1\DownloadController;
 use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\Auth\EmailVerificationController;
 use App\Http\Controllers\Api\V1\Auth\MeController;
@@ -69,6 +71,9 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
     Route::get('shops/{shop}', [ShopController::class, 'show'])->whereNumber('shop');
     Route::get('shops/{shop}/products', [ShopController::class, 'products'])->whereNumber('shop');
     Route::get('shops/{shop}/reviews', [ShopController::class, 'reviews'])->whereNumber('shop');
+
+    Route::get('downloads', [DownloadController::class, 'index']);
+    Route::get('downloads/{platform}', [DownloadController::class, 'show'])->whereIn('platform', ['android', 'ios']);
 
     Route::get('lodgings', [CatalogController::class, 'index']);
     Route::get('lodgings/{lodging}', [CatalogController::class, 'show'])->whereNumber('lodging');
@@ -285,6 +290,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
 
         // Reserve au role admin.
         Route::prefix('admin')->middleware('role:admin')->group(function () {
+            Route::post('downloads/{platform}', [AppReleaseController::class, 'store'])->whereIn('platform', ['android', 'ios']);
             Route::get('users', [AdminUserController::class, 'index']);
             Route::patch('users/{user}/status', [AdminUserController::class, 'updateStatus']);
         });

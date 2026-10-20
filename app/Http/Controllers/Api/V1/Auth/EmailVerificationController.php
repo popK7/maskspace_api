@@ -28,6 +28,19 @@ class EmailVerificationController extends Controller
         ]);
     }
 
+    /** POST /auth/activation — envoie le code une fois le profil complet. */
+    public function requestActivation(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $this->auth->requestActivation($user);
+
+        return response()->json([
+            'message' => 'Demande envoyée. Un administrateur vérifie votre compte avant de le rendre visible.',
+            'user' => new UserResource($user->fresh('profile')),
+        ], 202);
+    }
+
     /** POST /auth/email/resend — renvoie un code (202). */
     public function resend(Request $request): JsonResponse
     {

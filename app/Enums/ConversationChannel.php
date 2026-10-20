@@ -31,4 +31,6 @@ enum ConversationChannel: string
     case ChangeurDriver = 'changeur_driver';
     case CustomerHost = 'customer_host';
     case CustomerDemarcheur = 'customer_demarcheur';
+    case CustomerMedecin = 'customer_medecin';
+    case CustomerBeaute = 'customer_beaute';
 }

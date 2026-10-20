@@ -3,6 +3,7 @@
 namespace App\Services\Auth;
 
 use App\Enums\OtpPurpose;
+use App\Enums\ShopKind;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Exceptions\ApiException;
@@ -20,6 +21,7 @@ class AuthService
     public function __construct(
         private readonly TokenService $tokens,
         private readonly OtpService $otp,
+        private readonly GoogleIdentity $google,
     ) {}
 
     /**
@@ -31,36 +33,19 @@ class AuthService
         $user = DB::transaction(function () use ($data) {
             // role / status sont assignes explicitement : jamais via mass-assignment.
             $user = (new User)->forceFill([
-                'name' => $data['name'],
+                'name' => 'Nouveau compte',
                 'email' => $data['email'],
                 'phone' => $data['phone'],
                 'password' => $data['password'],
-                'role' => UserRole::from($data['role']),
+                'role' => UserRole::Client,
                 'status' => UserStatus::Active,
+                'is_visible' => false,
             ]);
             $user->save();
-
-            $user->profile()->create([
-                'shop_name' => $data['shop_name'] ?? null,
-                'vehicle_model' => $data['vehicle_model'] ?? null,
-                'vehicle_plate' => $data['vehicle_plate'] ?? null,
-                'specialties' => $data['specialties'] ?? null,
-            ]);
-
-            // Un compte boutique ou restaurant possède toujours son commerce (modifiable ensuite via /merchant/shop).
-            if ($kind = \App\Enums\ShopKind::forRole($user->role)) {
-                $user->shop()->save(new Shop([
-                    'kind' => $kind,
-                    'name' => $data['shop_name'],
-                    'categories' => $data['specialties'],
-                    'phone' => $data['phone'],
-                ]));
-            }
+            $user->profile()->create([]);
 
             return $user;
         });
-
-        $user->sendEmailVerificationNotification();
 
         return [
             'user' => $user->load('profile'),
@@ -81,7 +66,7 @@ class AuthService
             throw ApiException::invalidCredentials();
         }
 
-        if (! $user->isActive()) {
+        if ($user->isSuspended()) {
             throw ApiException::accountSuspended();
         }
 
@@ -97,6 +82,50 @@ class AuthService
         ];
     }
 
+    /** @return array{user: User, tokens: array} */
+    public function loginWithGoogle(string $idToken, Request $request, ?string $deviceName = null): array
+    {
+        $profile = $this->google->profile($idToken);
+
+        $user = User::with('profile')->where('google_id', $profile['sub'])->first()
+            ?? User::with('profile')->where('email', $profile['email'])->first();
+
+        if ($user !== null && $user->isSuspended()) {
+            throw ApiException::accountSuspended();
+        }
+
+        if ($user === null) {
+            $user = DB::transaction(function () use ($profile) {
+                $created = (new User)->forceFill([
+                    'name' => $profile['name'],
+                    'email' => $profile['email'],
+                    'google_id' => $profile['sub'],
+                    'phone' => $this->googlePhone($profile['sub']),
+                    'password' => Str::password(40),
+                    'role' => UserRole::Client,
+                    'status' => UserStatus::Active,
+                    'is_visible' => false,
+                    'email_verified_at' => now(),
+                ]);
+                $created->save();
+                $created->profile()->create([]);
+
+                return $created->load('profile');
+            });
+        } else {
+            $user->forceFill([
+                'google_id' => $user->google_id ?? $profile['sub'],
+                'email_verified_at' => $user->email_verified_at ?? now(),
+                'last_login_at' => now(),
+            ])->save();
+        }
+
+        return [
+            'user' => $user,
+            'tokens' => $this->tokens->issue($user, $request, $deviceName),
+        ];
+    }
+
     /**
      * Envoie un code de reinitialisation si le compte existe et est actif.
      * Ne revele jamais si l'e-mail existe (la reponse HTTP est identique).
@@ -105,7 +134,7 @@ class AuthService
     {
         $user = User::where('email', strtolower($email))->first();
 
-        if ($user === null || ! $user->isActive()) {
+        if ($user === null || $user->isSuspended()) {
             return;
         }
 
@@ -121,7 +150,7 @@ class AuthService
         // On verifie toujours le code (meme sans utilisateur) pour garder un comportement uniforme.
         $codeOk = $this->otp->verify($email, OtpPurpose::PasswordReset, $code);
 
-        if ($user === null || ! $user->isActive() || ! $codeOk) {
+        if ($user === null || $user->isSuspended() || ! $codeOk) {
             throw ValidationException::withMessages(['code' => [__('auth.invalid_code')]]);
         }
 
@@ -150,6 +179,81 @@ class AuthService
         $user->markEmailAsVerified();
     }
 
+    /** Enregistre le rôle et les informations exigées par ce rôle. Réservé à un compte pas encore activé. */
+    public function completeProfile(User $user, array $data): User
+    {
+        if ($user->is_visible) {
+            throw new ApiException('Le rôle se choisit avant d’être visible sur MakSpace.', 409, 'profile_locked');
+        }
+
+        return DB::transaction(function () use ($user, $data) {
+            $role = UserRole::from($data['role']);
+            $user->forceFill([
+                'name' => $data['name'],
+                'role' => $role,
+                'profile_completed_at' => now(),
+            ])->save();
+
+            $user->profile()->updateOrCreate([], [
+                'shop_name' => $data['shop_name'] ?? null,
+                'vehicle_model' => $data['vehicle_model'] ?? null,
+                'vehicle_plate' => $data['vehicle_plate'] ?? null,
+                'specialties' => $data['specialties'] ?? null,
+            ]);
+
+            $this->syncShop($user->fresh(), $data);
+
+            return $user->fresh(['profile', 'shop']);
+        });
+    }
+
+    /** Refuse la demande tant que le profil n'est pas complet, puis envoie le code d'activation. */
+    public function requestActivation(User $user): void
+    {
+        if ($user->isSuspended()) {
+            throw ApiException::accountSuspended();
+        }
+        if ($user->is_visible) {
+            return;
+        }
+        if (! $user->hasCompletedProfile()) {
+            throw new ApiException(
+                'Complétez votre profil avant de demander à être visible.',
+                422,
+                'profile_incomplete',
+            );
+        }
+
+        $user->forceFill(['activation_requested_at' => now()])->save();
+    }
+
+    private function syncShop(User $user, array $data): void
+    {
+        $kind = ShopKind::forRole($user->role);
+        $shop = $user->shop;
+
+        if ($kind === null) {
+            $shop?->delete();
+
+            return;
+        }
+
+        $attributes = [
+            'kind' => $kind,
+            'name' => $data['shop_name'],
+            'categories' => $data['specialties'] ?? [],
+            'phone' => $user->phone,
+        ];
+
+        if ($shop) {
+            $shop->forceFill($attributes)->save();
+
+            return;
+        }
+
+        $user->shop()->save(new Shop($attributes));
+    }
+
     public function changePassword(User $user, string $newPassword, ?string $currentFamilyId): void
     {
         DB::transaction(function () use ($user, $newPassword, $currentFamilyId) {
@@ -157,6 +261,13 @@ class AuthService
             // On garde uniquement la session courante.
             $this->tokens->revokeAllFor($user, $currentFamilyId);
         });
+    }
+
+    private function googlePhone(string $sub): string
+    {
+        $digits = preg_replace('/\D/', '', $sub) ?: (string) abs(crc32($sub));
+
+        return '+990'.substr($digits, 0, 12);
     }
 
     private function dummyHash(): string

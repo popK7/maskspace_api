@@ -302,6 +302,7 @@ class TransferService
         if ($changeur->role !== UserRole::Changeur) {
             throw new ApiException('Compte de transfert d’argent requis.', 403, 'forbidden_role');
         }
+        $changeur->ensureVisible();
         if (! $changeur->is_available) {
             throw new ApiException('Passez en service pour recevoir des demandes.', 409, 'changeur_offline');
         }

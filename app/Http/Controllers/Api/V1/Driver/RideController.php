@@ -19,7 +19,7 @@ class RideController extends Controller
     public function available(Request $request): JsonResponse
     {
         $user = $request->user();
-        if (! $user->is_available) {
+        if (! $user->is_available || ! $user->is_visible) {
             return response()->json(['data' => [], 'meta' => ['is_available' => false]]);
         }
 

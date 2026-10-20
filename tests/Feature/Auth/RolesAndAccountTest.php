@@ -194,9 +194,11 @@ class RolesAndAccountTest extends TestCase
     public function test_email_can_be_verified_with_the_code(): void
     {
         Notification::fake();
-        $token = $this->api()->postJson('/api/v1/auth/register', $this->registrationPayload('client'))
-            ->assertCreated()->json('tokens.access_token');
-        $user = User::firstOrFail();
+        $token = $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'email' => 'verify-me@example.com',
+        ]))->assertCreated()->json('tokens.access_token');
+        $this->api($token)->postJson('/api/v1/auth/email/resend')->assertStatus(202);
+        $user = User::where('email', 'verify-me@example.com')->firstOrFail();
         $code = $this->sentCode($user, VerifyEmailCodeNotification::class);
 
         $this->api($token)->postJson('/api/v1/auth/email/verify', ['code' => '000000'])

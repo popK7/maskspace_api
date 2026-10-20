@@ -10,4 +10,6 @@ enum ConversationSubject: string
     case Transfer = 'transfer';
     case Booking = 'booking';
     case Housing = 'housing';
+    case Consultation = 'consultation';
+    case Beauty = 'beauty';
 }

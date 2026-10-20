@@ -29,12 +29,49 @@ trait InteractsWithAuth
             UserRole::Changeur => ['specialties' => ['senegal', 'cote_ivoire']],
             UserRole::Hote => ['specialties' => ['appartement', 'chambre']],
             UserRole::Demarcheur => ['specialties' => ['gironde', 'maarif']],
+            UserRole::Medecin => ['specialties' => ['generaliste', 'pediatre']],
+            UserRole::Beaute => ['specialties' => ['coiffeur', 'manucure']],
             UserRole::Boutique => ['shop_name' => 'Epicerie Awa', 'specialties' => ['epicerie']],
             UserRole::Restaurant => ['shop_name' => 'Chez Tantie', 'specialties' => ['ivoirienne']],
             default => [],
         };
 
         return [...$base, ...$extra, ...$overrides];
+    }
+
+    /** Inscription minimale : téléphone, e-mail, mot de passe. */
+    protected function signupPayload(array $overrides = []): array
+    {
+        return [
+            'email' => 'signup@example.com',
+            'phone' => '+212 6 12 34 56 78',
+            'password' => 'Password123',
+            'password_confirmation' => 'Password123',
+            'device_name' => 'phpunit',
+            ...$overrides,
+        ];
+    }
+
+    /**
+     * Inscrit, complète le profil du rôle, puis active le compte.
+     * Retourne l'access token d'un compte actif.
+     */
+    protected function registerActivated(UserRole|string $role, array $overrides = []): string
+    {
+        $role = $role instanceof UserRole ? $role : UserRole::from($role);
+        $email = strtolower($overrides['email'] ?? $role->value.'-active@example.com');
+        $token = $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'email' => $email,
+        ]))->assertCreated()->json('tokens.access_token');
+
+        $this->api($token)->postJson('/api/v1/me/profile', $this->registrationPayload($role, [
+            'email' => $email,
+            ...$overrides,
+        ]))->assertOk();
+
+        User::where('email', $email)->update(['is_visible' => true]);
+
+        return $token;
     }
 
     /** Connecte un utilisateur par l'API et retourne la reponse JSON decodee. */

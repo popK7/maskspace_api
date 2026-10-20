@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Auth\GoogleLoginRequest;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RefreshRequest;
 use App\Http\Requests\Auth\RegisterRequest;
@@ -35,6 +36,18 @@ class AuthController extends Controller
         $result = $this->auth->login(
             $request->validated('email'),
             $request->validated('password'),
+            $request,
+            $request->validated('device_name'),
+        );
+
+        return $this->authResponse($result);
+    }
+
+    /** POST /auth/google — connexion ou création via un compte Gmail. */
+    public function google(GoogleLoginRequest $request): JsonResponse
+    {
+        $result = $this->auth->loginWithGoogle(
+            $request->validated('id_token'),
             $request,
             $request->validated('device_name'),
         );

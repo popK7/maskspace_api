@@ -31,9 +31,12 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
             'role' => UserRole::class,
             'status' => UserStatus::class,
             'is_available' => 'boolean',
+            'is_visible' => 'boolean',
             'latitude' => 'float',
             'longitude' => 'float',
             'email_verified_at' => 'datetime',
+            'profile_completed_at' => 'datetime',
+            'activation_requested_at' => 'datetime',
             'last_login_at' => 'datetime',
             'location_updated_at' => 'datetime',
             'password' => 'hashed',
@@ -95,6 +98,27 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
     public function isActive(): bool
     {
         return $this->status === UserStatus::Active;
+    }
+
+    public function isSuspended(): bool
+    {
+        return $this->status === UserStatus::Suspended;
+    }
+
+    public function hasCompletedProfile(): bool
+    {
+        return $this->profile_completed_at !== null;
+    }
+
+    public function ensureVisible(): void
+    {
+        if (! $this->is_visible) {
+            throw new \App\Exceptions\ApiException(
+                'Votre compte n’est pas encore visible. Demandez-le : un administrateur doit valider.',
+                403,
+                'account_not_visible',
+            );
+        }
     }
 
     /** Envoie un code a 6 chiffres plutot qu'un lien (adapte au mobile). */

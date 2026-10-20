@@ -16,6 +16,8 @@ enum UserRole: string
     case Changeur = 'changeur';
     case Hote = 'hote';
     case Demarcheur = 'demarcheur';
+    case Medecin = 'medecin';
+    case Beaute = 'beaute';
     case Admin = 'admin';
 
     /**
@@ -77,6 +79,8 @@ enum UserRole: string
                 'gironde', 'maarif', 'gauthier', 'racine', 'anfa', 'ain_diab',
                 'habous', 'bourgogne', 'oasis', 'sidi_maarouf',
             ],
+            self::Medecin => array_map(fn (MedicalSpecialty $s) => $s->value, MedicalSpecialty::cases()),
+            self::Beaute => array_map(fn (BeautySpecialty $s) => $s->value, BeautySpecialty::cases()),
             default => null,
         };
     }

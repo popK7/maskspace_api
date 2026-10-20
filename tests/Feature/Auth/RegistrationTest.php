@@ -5,7 +5,6 @@ namespace Tests\Feature\Auth;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
-use App\Notifications\VerifyEmailCodeNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
@@ -27,46 +26,81 @@ class RegistrationTest extends TestCase
     {
         Notification::fake();
 
-        $response = $this->api()->postJson('/api/v1/auth/register', $this->registrationPayload($role));
+        $response = $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'email' => $role->value.'@example.com',
+        ]));
 
         $response->assertCreated()
             ->assertHeader('Cache-Control', 'no-store, private')
-            ->assertJsonPath('user.role', $role->value)
+            ->assertJsonPath('user.role', 'client')
+            ->assertJsonPath('user.status', 'active')
+            ->assertJsonPath('user.is_visible', false)
+            ->assertJsonPath('user.profile_completed', false)
             ->assertJsonPath('user.email_verified', false)
             ->assertJsonStructure(['user' => ['id', 'name', 'email', 'phone', 'role', 'profile'],
                 'tokens' => ['access_token', 'token_type', 'expires_in', 'refresh_token']])
             ->assertJsonMissingPath('user.password');
 
         $user = User::where('email', $role->value.'@example.com')->firstOrFail();
-        $this->assertSame($role, $user->role);
+        $this->assertSame(UserStatus::Active, $user->status);
+        $this->assertFalse($user->is_visible);
         $this->assertTrue(password_verify('Password123', $user->password));
-        Notification::assertSentTo($user, VerifyEmailCodeNotification::class);
+        Notification::assertNothingSent();
 
-        // Le JWT porte le role, la session et le sujet.
-        $payload = JWTAuth::setToken($response->json('tokens.access_token'))->getPayload();
+        $token = $response->json('tokens.access_token');
+        $this->api($token)->postJson('/api/v1/auth/activation')
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'profile_incomplete');
+
+        $this->api($token)->postJson('/api/v1/me/profile', $this->registrationPayload($role))
+            ->assertOk()
+            ->assertJsonPath('data.role', $role->value)
+            ->assertJsonPath('data.profile_completed', true)
+            ->assertJsonPath('data.is_visible', false);
+
+        $this->api($token)->postJson('/api/v1/auth/activation')
+            ->assertStatus(202)
+            ->assertJsonPath('user.activation_requested', true)
+            ->assertJsonPath('user.is_visible', false);
+        Notification::assertNothingSent();
+
+        $payload = JWTAuth::setToken($token)->getPayload();
         $this->assertSame((string) $user->id, (string) $payload->get('sub'));
-        $this->assertSame($role->value, $payload->get('role'));
         $this->assertNotEmpty($payload->get('sid'));
     }
 
     public function test_role_specific_profile_is_persisted(): void
     {
-        $this->api()->postJson('/api/v1/auth/register', $this->registrationPayload(UserRole::Driver))->assertCreated()
-            ->assertJsonPath('user.profile.vehicle_model', 'Yamaha NMAX')
-            ->assertJsonPath('user.profile.vehicle_plate', 'A 12345'); // normalise en majuscules
+        $driver = $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'email' => 'driver-profile@example.com',
+        ]))->assertCreated()->json('tokens.access_token');
+        $this->api($driver)->postJson('/api/v1/me/profile', $this->registrationPayload(UserRole::Driver, [
+            'email' => 'driver-profile@example.com',
+        ]))->assertOk()
+            ->assertJsonPath('data.profile.vehicle_model', 'Yamaha NMAX')
+            ->assertJsonPath('data.profile.vehicle_plate', 'A 12345');
 
-        $this->api()->postJson('/api/v1/auth/register', $this->registrationPayload(UserRole::Restaurant))->assertCreated()
-            ->assertJsonPath('user.profile.shop_name', 'Chez Tantie')
-            ->assertJsonPath('user.profile.specialties', ['ivoirienne']);
+        $restaurant = $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'email' => 'restaurant-profile@example.com',
+        ]))->assertCreated()->json('tokens.access_token');
+        $this->api($restaurant)->postJson('/api/v1/me/profile', $this->registrationPayload(UserRole::Restaurant, [
+            'email' => 'restaurant-profile@example.com',
+        ]))->assertOk()
+            ->assertJsonPath('data.profile.shop_name', 'Chez Tantie')
+            ->assertJsonPath('data.profile.specialties', ['ivoirienne']);
     }
 
     public function test_admin_role_cannot_be_self_assigned(): void
     {
-        $this->api()->postJson('/api/v1/auth/register', $this->registrationPayload('client', ['role' => 'admin']))
+        $token = $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'email' => 'not-admin@example.com',
+        ]))->assertCreated()->json('tokens.access_token');
+
+        $this->api($token)->postJson('/api/v1/me/profile', $this->registrationPayload('client', ['role' => 'admin']))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('role');
 
-        $this->assertDatabaseCount('users', 0);
+        $this->assertSame(UserRole::Client, User::where('email', 'not-admin@example.com')->firstOrFail()->role);
     }
 
     public function test_status_and_verification_cannot_be_mass_assigned(): void
@@ -79,7 +113,9 @@ class RegistrationTest extends TestCase
 
         $user = User::firstOrFail();
         $this->assertSame(UserStatus::Active, $user->status);
+        $this->assertFalse($user->is_visible);
         $this->assertNull($user->email_verified_at);
+        $this->assertNull($user->profile_completed_at);
         $this->assertSame(UserRole::Client, $user->role);
     }
 
@@ -92,6 +128,8 @@ class RegistrationTest extends TestCase
             'changeur sans corridor' => [UserRole::Changeur, ['specialties']],
             'hote sans type' => [UserRole::Hote, ['specialties']],
             'demarcheur sans zone' => [UserRole::Demarcheur, ['specialties']],
+            'medecin sans specialite' => [UserRole::Medecin, ['specialties']],
+            'beaute sans specialite' => [UserRole::Beaute, ['specialties']],
             'boutique sans nom' => [UserRole::Boutique, ['shop_name']],
             'boutique sans rayon' => [UserRole::Boutique, ['specialties']],
             'restaurant sans nom' => [UserRole::Restaurant, ['shop_name']],
@@ -107,7 +145,11 @@ class RegistrationTest extends TestCase
             unset($payload[$field]);
         }
 
-        $this->api()->postJson('/api/v1/auth/register', $payload)
+        $token = $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'email' => $role->value.'-'.implode('-', $missing).'@example.com',
+        ]))->assertCreated()->json('tokens.access_token');
+
+        $this->api($token)->postJson('/api/v1/me/profile', $payload)
             ->assertUnprocessable()
             ->assertJsonValidationErrors($missing);
     }
@@ -115,16 +157,24 @@ class RegistrationTest extends TestCase
     public function test_specialties_must_belong_to_the_role_catalog(): void
     {
         // "ivoirienne" est une cuisine, pas un metier d'artisan.
-        $this->api()->postJson('/api/v1/auth/register', $this->registrationPayload(UserRole::Artisan, [
+        $token = $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'email' => 'bad-specialty@example.com',
+        ]))->assertCreated()->json('tokens.access_token');
+
+        $this->api($token)->postJson('/api/v1/me/profile', $this->registrationPayload(UserRole::Artisan, [
             'specialties' => ['ivoirienne'],
         ]))->assertUnprocessable()->assertJsonValidationErrors('specialties.0');
     }
 
     public function test_client_does_not_need_role_specific_fields(): void
     {
-        $this->api()->postJson('/api/v1/auth/register', $this->registrationPayload(UserRole::Client))
-            ->assertCreated()
-            ->assertJsonPath('user.profile.vehicle_model', null);
+        $token = $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'email' => 'plain-client@example.com',
+        ]))->assertCreated()->json('tokens.access_token');
+
+        $this->api($token)->postJson('/api/v1/me/profile', $this->registrationPayload(UserRole::Client))
+            ->assertOk()
+            ->assertJsonPath('data.profile.vehicle_model', null);
     }
 
     public function test_email_must_be_unique_case_insensitively(): void

@@ -63,6 +63,8 @@ class UserFactory extends Factory
                 $role === UserRole::Changeur => ['specialties' => ['senegal']],
                 $role === UserRole::Hote => ['specialties' => ['appartement', 'chambre']],
                 $role === UserRole::Demarcheur => ['specialties' => ['gironde', 'maarif']],
+                $role === UserRole::Medecin => ['specialties' => ['generaliste']],
+                $role === UserRole::Beaute => ['specialties' => ['coiffeur']],
                 default => [],
             };
             $user->profile()->create([...$defaults, ...$overrides]);

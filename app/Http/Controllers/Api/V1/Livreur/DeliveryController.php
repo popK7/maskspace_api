@@ -35,7 +35,7 @@ class DeliveryController extends Controller
         $me = $request->user()->id;
 
         // Hors service : aucune course proposee.
-        if (! $request->user()->is_available) {
+        if (! $request->user()->is_available || ! $request->user()->is_visible) {
             return response()->json(['data' => [], 'meta' => ['is_available' => false]]);
         }
 

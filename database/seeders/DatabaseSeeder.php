@@ -40,6 +40,10 @@ class DatabaseSeeder extends Seeder
                 ['specialties' => ['appartement', 'chambre', 'studio', 'villa']]],
             [UserRole::Demarcheur, 'Mamadou Ba', 'demarcheur@transport.app', '+212 6 19 28 37 46',
                 ['specialties' => ['gironde', 'maarif', 'anfa']]],
+            [UserRole::Medecin, 'Awa Diop', 'medecin@transport.app', '+212 6 20 39 48 57',
+                ['specialties' => ['generaliste', 'cardiologue', 'pediatre']]],
+            [UserRole::Beaute, 'Amina Fall', 'beaute@transport.app', '+212 6 21 40 59 68',
+                ['specialties' => ['coiffeur', 'manucure', 'epilation', 'tresses']]],
             [UserRole::Admin, 'Administrateur', 'admin@transport.app', '+212 6 00 00 00 00', []],
         ];
 

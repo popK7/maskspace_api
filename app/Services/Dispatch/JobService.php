@@ -303,6 +303,7 @@ class JobService
         if ($artisan->role !== UserRole::Artisan) {
             throw new ApiException('Compte artisan requis.', 403, 'forbidden_role');
         }
+        $artisan->ensureVisible();
         if (! $artisan->is_available) {
             throw new ApiException('Passez en service pour recevoir des demandes.', 409, 'artisan_offline');
         }

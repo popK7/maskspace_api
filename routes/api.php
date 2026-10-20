@@ -36,6 +36,10 @@ use App\Http\Controllers\Api\V1\Keur\BookingController;
 use App\Http\Controllers\Api\V1\Keur\CatalogController;
 use App\Http\Controllers\Api\V1\Housing\HousingRequestController;
 use App\Http\Controllers\Api\V1\Demarcheur\HousingController as DemarcheurHousingController;
+use App\Http\Controllers\Api\V1\Care\ConsultationController;
+use App\Http\Controllers\Api\V1\Medecin\ConsultationController as MedecinConsultationController;
+use App\Http\Controllers\Api\V1\Beauty\BeautyController;
+use App\Http\Controllers\Api\V1\Beaute\BeautyController as BeauteBeautyController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -49,6 +53,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
     Route::prefix('auth')->group(function () {
         Route::post('register', [AuthController::class, 'register'])->middleware('throttle:register');
         Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
+        Route::post('google', [AuthController::class, 'google'])->middleware('throttle:login');
         Route::post('refresh', [AuthController::class, 'refresh'])->middleware('throttle:refresh');
         Route::post('forgot-password', [PasswordResetController::class, 'forgot'])->middleware('throttle:forgot-password');
         Route::post('reset-password', [PasswordResetController::class, 'reset'])->middleware('throttle:reset-password');
@@ -60,7 +65,8 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::post('logout-all', [AuthController::class, 'logoutAll']);
         });
 
-        Route::middleware(['auth:api', 'active'])->group(function () {
+        Route::middleware(['auth:api', 'not-suspended'])->group(function () {
+            Route::post('activation', [EmailVerificationController::class, 'requestActivation'])->middleware('throttle:30,1');
             Route::post('email/verify', [EmailVerificationController::class, 'verify'])->middleware('throttle:verify-email');
             Route::post('email/resend', [EmailVerificationController::class, 'resend'])->middleware('throttle:otp-resend');
         });
@@ -78,9 +84,14 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
     Route::get('lodgings', [CatalogController::class, 'index']);
     Route::get('lodgings/{lodging}', [CatalogController::class, 'show'])->whereNumber('lodging');
 
+    // Profil et consultation du compte, y compris tant que l'activation n'est pas faite.
+    Route::middleware(['auth:api', 'not-suspended'])->group(function () {
+        Route::get('me', [MeController::class, 'show']);
+        Route::post('me/profile', [MeController::class, 'complete'])->middleware('throttle:20,1');
+    });
+
     // ---- Routes authentifiees ----
     Route::middleware(['auth:api', 'active'])->group(function () {
-        Route::get('me', [MeController::class, 'show']);
         Route::patch('me', [MeController::class, 'update']);
         Route::put('me/password', [MeController::class, 'updatePassword']);
 
@@ -138,6 +149,20 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::post('housing-requests/{housingRequest}/choose', [HousingRequestController::class, 'choose'])->whereNumber('housingRequest');
             Route::post('housing-requests/{housingRequest}/complete', [HousingRequestController::class, 'complete'])->whereNumber('housingRequest');
             Route::post('housing-requests/{housingRequest}/cancel', [HousingRequestController::class, 'cancel'])->whereNumber('housingRequest');
+
+            Route::post('consultations', [ConsultationController::class, 'store'])->middleware('throttle:20,1');
+            Route::get('consultations', [ConsultationController::class, 'index']);
+            Route::get('consultations/{consultation}', [ConsultationController::class, 'show'])->whereNumber('consultation');
+            Route::post('consultations/{consultation}/choose', [ConsultationController::class, 'choose'])->whereNumber('consultation');
+            Route::post('consultations/{consultation}/complete', [ConsultationController::class, 'complete'])->whereNumber('consultation');
+            Route::post('consultations/{consultation}/cancel', [ConsultationController::class, 'cancel'])->whereNumber('consultation');
+
+            Route::post('beauty-requests', [BeautyController::class, 'store'])->middleware('throttle:20,1');
+            Route::get('beauty-requests', [BeautyController::class, 'index']);
+            Route::get('beauty-requests/{beautyRequest}', [BeautyController::class, 'show'])->whereNumber('beautyRequest');
+            Route::post('beauty-requests/{beautyRequest}/choose', [BeautyController::class, 'choose'])->whereNumber('beautyRequest');
+            Route::post('beauty-requests/{beautyRequest}/complete', [BeautyController::class, 'complete'])->whereNumber('beautyRequest');
+            Route::post('beauty-requests/{beautyRequest}/cancel', [BeautyController::class, 'cancel'])->whereNumber('beautyRequest');
         });
 
         // ---- Artisan : interventions et appel d'un transporteur ----
@@ -189,6 +214,28 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::post('requests/{housingRequest}/offer', [DemarcheurHousingController::class, 'offer'])->whereNumber('housingRequest')->middleware('throttle:30,1');
             Route::post('requests/{housingRequest}/complete', [DemarcheurHousingController::class, 'complete'])->whereNumber('housingRequest');
             Route::post('requests/{housingRequest}/cancel', [DemarcheurHousingController::class, 'cancel'])->whereNumber('housingRequest');
+        });
+
+        // ---- Allo Doctors : consultations par spécialité ----
+        Route::prefix('medecin')->middleware('role:medecin')->group(function () {
+            Route::patch('availability', [ChangeurPresenceController::class, 'availability']);
+            Route::get('dashboard', [MedecinConsultationController::class, 'dashboard']);
+            Route::get('consultations/available', [MedecinConsultationController::class, 'available']);
+            Route::get('consultations', [MedecinConsultationController::class, 'index']);
+            Route::post('consultations/{consultation}/offer', [MedecinConsultationController::class, 'offer'])->whereNumber('consultation')->middleware('throttle:30,1');
+            Route::post('consultations/{consultation}/complete', [MedecinConsultationController::class, 'complete'])->whereNumber('consultation');
+            Route::post('consultations/{consultation}/cancel', [MedecinConsultationController::class, 'cancel'])->whereNumber('consultation');
+        });
+
+        // ---- Soins et beauté : prestations par spécialité ----
+        Route::prefix('beaute')->middleware('role:beaute')->group(function () {
+            Route::patch('availability', [ChangeurPresenceController::class, 'availability']);
+            Route::get('dashboard', [BeauteBeautyController::class, 'dashboard']);
+            Route::get('requests/available', [BeauteBeautyController::class, 'available']);
+            Route::get('requests', [BeauteBeautyController::class, 'index']);
+            Route::post('requests/{beautyRequest}/offer', [BeauteBeautyController::class, 'offer'])->whereNumber('beautyRequest')->middleware('throttle:30,1');
+            Route::post('requests/{beautyRequest}/complete', [BeauteBeautyController::class, 'complete'])->whereNumber('beautyRequest');
+            Route::post('requests/{beautyRequest}/cancel', [BeauteBeautyController::class, 'cancel'])->whereNumber('beautyRequest');
         });
 
         // ---- Changeur : transferts d'argent et appel d'un transporteur ----
@@ -293,6 +340,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::post('downloads/{platform}', [AppReleaseController::class, 'store'])->whereIn('platform', ['android', 'ios']);
             Route::get('users', [AdminUserController::class, 'index']);
             Route::patch('users/{user}/status', [AdminUserController::class, 'updateStatus']);
+            Route::patch('users/{user}/visibility', [AdminUserController::class, 'updateVisibility']);
         });
     });
 });

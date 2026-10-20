@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\ChangePasswordRequest;
+use App\Http\Requests\Auth\CompleteProfileRequest;
 use App\Http\Requests\Auth\UpdateProfileRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
@@ -43,6 +44,14 @@ class MeController extends Controller
         });
 
         return new UserResource($user->fresh('profile'));
+    }
+
+    /** POST /me/profile — rôle et informations exigées, avant l'activation. */
+    public function complete(CompleteProfileRequest $request): UserResource
+    {
+        $user = $this->auth->completeProfile($request->user(), $request->validated());
+
+        return new UserResource($user);
     }
 
     /** PUT /me/password — change le mot de passe et ferme les AUTRES sessions. */

@@ -15,8 +15,7 @@ class RestaurantTest extends TestCase
 
     public function test_restaurant_registration_creates_a_restaurant_with_its_cuisine(): void
     {
-        $token = $this->api()->postJson('/api/v1/auth/register', $this->registrationPayload('restaurant'))
-            ->assertCreated()->json('tokens.access_token');
+        $token = $this->registerActivated('restaurant');
 
         $this->api($token)->getJson('/api/v1/merchant/shop')->assertOk()
             ->assertJsonPath('data.kind', 'restaurant')

@@ -23,6 +23,7 @@ class ShopCatalog
         $radius = $f['radius_km'] ?? null;
 
         $query = Shop::query()->where('is_active', true)
+            ->whereHas('owner', fn ($q) => $q->where('is_visible', true))
             ->with('featuredDish.images')
             ->when($f['kind'] ?? null, fn ($q, $kind) => $q->where('kind', $kind))
             ->when($f['q'] ?? null, function ($q, $term) {

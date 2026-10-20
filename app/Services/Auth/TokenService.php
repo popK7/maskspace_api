@@ -77,7 +77,7 @@ class TokenService
 
             $user = User::with('profile')->find($token->user_id);
 
-            if ($user === null || ! $user->isActive()) {
+            if ($user === null || $user->isSuspended()) {
                 $this->revokeFamily($token->family_id);
 
                 return null;

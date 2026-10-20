@@ -23,6 +23,7 @@ class UserController extends Controller
         $filters = $request->validate([
             'role' => ['nullable', Rule::enum(UserRole::class)],
             'status' => ['nullable', Rule::enum(UserStatus::class)],
+            'visibility' => ['nullable', 'string', Rule::in(['visible', 'hidden', 'requested'])],
             'search' => ['nullable', 'string', 'max:100'],
             'per_page' => ['nullable', 'integer', 'between:1,100'],
         ]);
@@ -31,6 +32,15 @@ class UserController extends Controller
             ->with('profile')
             ->when($filters['role'] ?? null, fn ($q, $role) => $q->where('role', $role))
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['visibility'] ?? null, function ($q, $visibility) {
+                if ($visibility === 'requested') {
+                    $q->where('is_visible', false)->whereNotNull('activation_requested_at');
+                } elseif ($visibility === 'hidden') {
+                    $q->where('is_visible', false);
+                } else {
+                    $q->where('is_visible', true);
+                }
+            })
             ->when($filters['search'] ?? null, function ($q, $search) {
                 $like = '%'.addcslashes($search, '%_\\').'%';
                 $q->where(fn ($q) => $q->where('name', 'like', $like)->orWhere('email', 'like', $like));
@@ -60,6 +70,27 @@ class UserController extends Controller
         if ($user->status === UserStatus::Suspended) {
             $tokens->revokeAllFor($user);
         }
+
+        return new UserResource($user->load('profile'));
+    }
+
+    /** PATCH /admin/users/{user}/visibility — rend le compte visible, ou le retire. */
+    public function updateVisibility(Request $request, User $user): UserResource
+    {
+        $data = $request->validate([
+            'is_visible' => ['required', 'boolean'],
+        ]);
+
+        abort_if(
+            $user->is($request->user()) || $user->hasRole(UserRole::Admin),
+            403,
+            'Impossible de modifier la visibilité de ce compte.',
+        );
+
+        $user->forceFill([
+            'is_visible' => (bool) $data['is_visible'],
+            'activation_requested_at' => $data['is_visible'] ? $user->activation_requested_at : null,
+        ])->save();
 
         return new UserResource($user->load('profile'));
     }

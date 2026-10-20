@@ -281,6 +281,7 @@ class OrderService
     /** Prise en charge atomique : un seul livreur peut reserver une commande. */
     public function claim(Order $order, User $livreur): Order
     {
+        $livreur->ensureVisible();
         if (! $livreur->is_available) {
             throw new ApiException('Vous êtes hors service. Passez en service pour accepter des courses.', 409, 'livreur_unavailable');
         }

@@ -15,8 +15,7 @@ class MerchantTest extends TestCase
 
     public function test_registration_creates_the_shop_and_merchant_reads_it(): void
     {
-        $token = $this->api()->postJson('/api/v1/auth/register', $this->registrationPayload('boutique'))
-            ->assertCreated()->json('tokens.access_token');
+        $token = $this->registerActivated('boutique');
 
         $this->api($token)->getJson('/api/v1/merchant/shop')->assertOk()
             ->assertJsonPath('data.name', 'Epicerie Awa')

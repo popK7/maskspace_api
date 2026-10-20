@@ -140,6 +140,7 @@ class HousingService
         if ($demarcheur->role !== UserRole::Demarcheur) {
             throw new ApiException('Compte démarcheur requis.', 403, 'forbidden_role');
         }
+        $demarcheur->ensureVisible();
         if (! $demarcheur->is_available) {
             throw new ApiException('Passez en service pour répondre.', 409, 'demarcheur_offline');
         }

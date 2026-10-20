@@ -281,6 +281,7 @@ class RideService
         if (! $driver) {
             throw new ApiException('Transporteur introuvable.', 422, 'driver_not_found');
         }
+        $driver->ensureVisible();
         if (! $driver->is_available) {
             throw new ApiException('Ce transporteur n’est pas en service pour le moment.', 409, 'driver_offline');
         }
@@ -305,6 +306,7 @@ class RideService
         if ($driver->role !== UserRole::Driver) {
             throw new ApiException('Compte transporteur requis.', 403, 'forbidden_role');
         }
+        $driver->ensureVisible();
         if (! $driver->is_available) {
             throw new ApiException('Passez en service pour prendre une course.', 409, 'driver_offline');
         }

@@ -21,6 +21,9 @@ class UserResource extends JsonResource
             'role' => $this->role->value,
             'status' => $this->status->value,
             'email_verified' => $this->hasVerifiedEmail(),
+            'profile_completed' => $this->hasCompletedProfile(),
+            'is_visible' => (bool) $this->is_visible,
+            'activation_requested' => $this->activation_requested_at !== null,
             'profile' => $profile ? [
                 'shop_name' => $profile->shop_name,
                 'vehicle_model' => $profile->vehicle_model,

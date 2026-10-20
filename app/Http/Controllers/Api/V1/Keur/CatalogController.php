@@ -29,6 +29,7 @@ class CatalogController extends Controller
 
         $rows = Lodging::with(['photos', 'host'])
             ->where('is_active', true)
+            ->whereHas('host', fn ($q) => $q->where('is_visible', true))
             ->whereHas('photos')
             ->when($f['kind'] ?? null, fn ($q, $k) => $q->where('kind', $k))
             ->when($f['billing'] ?? null, fn ($q, $b) => $q->where('billing', $b))

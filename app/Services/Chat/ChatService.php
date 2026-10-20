@@ -3,6 +3,8 @@
 namespace App\Services\Chat;
 
 use App\Enums\BookingStatus;
+use App\Enums\BeautyStatus;
+use App\Enums\ConsultationStatus;
 use App\Enums\HousingStatus;
 use App\Enums\ConversationChannel;
 use App\Enums\ConversationSubject;
@@ -11,7 +13,9 @@ use App\Enums\OrderStatus;
 use App\Enums\RideStatus;
 use App\Enums\TransferStatus;
 use App\Exceptions\ApiException;
+use App\Models\BeautyRequest;
 use App\Models\ChatMessage;
+use App\Models\Consultation;
 use App\Models\Conversation;
 use App\Models\HousingRequest;
 use App\Models\Job;
@@ -88,7 +92,7 @@ class ChatService
      * Une course rattachee a une intervention ou un transfert se discute
      * sur la demande parente (un seul fil, pas un doublon par course).
      *
-     * @return array{0: ConversationSubject, 1: int, 2: Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest}
+     * @return array{0: ConversationSubject, 1: int, 2: Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest}
      */
     private function canonical(ConversationSubject $type, int $id): array
     {
@@ -110,7 +114,7 @@ class ChatService
         return [$type, $id, $subject];
     }
 
-    private function load(ConversationSubject $type, int $id): Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest
+    private function load(ConversationSubject $type, int $id): Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest
     {
         return match ($type) {
             ConversationSubject::Order => Order::with(['shop.owner', 'customer', 'livreur'])->findOrFail($id),
@@ -119,22 +123,24 @@ class ChatService
             ConversationSubject::Transfer => MoneyTransfer::with(['client', 'changeur', 'ride.driver', 'ride.passenger'])->findOrFail($id),
             ConversationSubject::Booking => LodgingBooking::with(['client', 'host', 'lodging'])->findOrFail($id),
             ConversationSubject::Housing => HousingRequest::with(['client', 'demarcheur'])->findOrFail($id),
+            ConversationSubject::Consultation => Consultation::with(['client', 'medecin'])->findOrFail($id),
+            ConversationSubject::Beauty => BeautyRequest::with(['client', 'pro'])->findOrFail($id),
         };
     }
 
-    private function subjectOf(Conversation $conversation): Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest
+    private function subjectOf(Conversation $conversation): Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest
     {
         return $this->load($conversation->subject_type, $conversation->subject_id);
     }
 
-    private function assertCanSee(User $user, ConversationSubject $type, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest $subject): void
+    private function assertCanSee(User $user, ConversationSubject $type, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest $subject): void
     {
         if (! $this->canSee($user, $type, $subject)) {
             abort(404);
         }
     }
 
-    public function assertParticipant(User $user, Conversation $conversation, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|null $subject = null): void
+    public function assertParticipant(User $user, Conversation $conversation, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest|null $subject = null): void
     {
         $subject ??= $this->subjectOf($conversation);
         if (! $this->isParticipant($user, $conversation->channel, $subject)) {
@@ -142,7 +148,7 @@ class ChatService
         }
     }
 
-    private function canSee(User $user, ConversationSubject $type, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest $subject): bool
+    private function canSee(User $user, ConversationSubject $type, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest $subject): bool
     {
         return match (true) {
             $subject instanceof Order => $user->id === $subject->customer_id
@@ -164,12 +170,16 @@ class ChatService
                 || $user->id === $subject->host_id,
             $subject instanceof HousingRequest => $user->id === $subject->client_id
                 || $user->id === $subject->demarcheur_id,
+            $subject instanceof Consultation => $user->id === $subject->client_id
+                || $user->id === $subject->medecin_id,
+            $subject instanceof BeautyRequest => $user->id === $subject->client_id
+                || $user->id === $subject->pro_id,
             default => false,
         };
     }
 
     /** @return list<ConversationChannel> */
-    private function channelsFor(User $user, ConversationSubject $type, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest $subject): array
+    private function channelsFor(User $user, ConversationSubject $type, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest $subject): array
     {
         return match (true) {
             $subject instanceof Order => $this->orderChannels($user, $subject),
@@ -178,6 +188,8 @@ class ChatService
             $subject instanceof Ride => $this->rideChannels($user, $subject),
             $subject instanceof LodgingBooking => $this->bookingChannels($user, $subject),
             $subject instanceof HousingRequest => $this->housingChannels($user, $subject),
+            $subject instanceof Consultation => $this->consultationChannels($user, $subject),
+            $subject instanceof BeautyRequest => $this->beautyChannels($user, $subject),
             default => [],
         };
     }
@@ -254,6 +266,26 @@ class ChatService
     }
 
     /** @return list<ConversationChannel> */
+    private function consultationChannels(User $user, Consultation $consultation): array
+    {
+        if ($consultation->medecin_id && ($user->id === $consultation->client_id || $user->id === $consultation->medecin_id)) {
+            return [ConversationChannel::CustomerMedecin];
+        }
+
+        return [];
+    }
+
+    /** @return list<ConversationChannel> */
+    private function beautyChannels(User $user, BeautyRequest $request): array
+    {
+        if ($request->pro_id && ($user->id === $request->client_id || $user->id === $request->pro_id)) {
+            return [ConversationChannel::CustomerBeaute];
+        }
+
+        return [];
+    }
+
+    /** @return list<ConversationChannel> */
     private function bookingChannels(User $user, LodgingBooking $booking): array
     {
         if ($user->id === $booking->client_id || $user->id === $booking->host_id) {
@@ -273,7 +305,7 @@ class ChatService
         return [];
     }
 
-    private function isParticipant(User $user, ConversationChannel $channel, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest $subject): bool
+    private function isParticipant(User $user, ConversationChannel $channel, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest $subject): bool
     {
         $ids = $this->participantIds($channel, $subject);
 
@@ -281,7 +313,7 @@ class ChatService
     }
 
     /** @return list<int> */
-    private function participantIds(ConversationChannel $channel, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest $subject): array
+    private function participantIds(ConversationChannel $channel, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest $subject): array
     {
         return array_values(array_filter(match (true) {
             $subject instanceof Order => match ($channel) {
@@ -314,11 +346,19 @@ class ChatService
                 ConversationChannel::CustomerDemarcheur => [$subject->client_id, $subject->demarcheur_id],
                 default => [],
             },
+            $subject instanceof Consultation => match ($channel) {
+                ConversationChannel::CustomerMedecin => [$subject->client_id, $subject->medecin_id],
+                default => [],
+            },
+            $subject instanceof BeautyRequest => match ($channel) {
+                ConversationChannel::CustomerBeaute => [$subject->client_id, $subject->pro_id],
+                default => [],
+            },
             default => [],
         }, fn ($id) => $id !== null));
     }
 
-    private function canWrite(Conversation $conversation, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest $subject): bool
+    private function canWrite(Conversation $conversation, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest $subject): bool
     {
         return match (true) {
             $subject instanceof Order => ! in_array($subject->status, [OrderStatus::Rejected, OrderStatus::Cancelled], true),
@@ -327,11 +367,13 @@ class ChatService
             $subject instanceof Ride => $subject->status !== RideStatus::Cancelled,
             $subject instanceof LodgingBooking => ! in_array($subject->status, [BookingStatus::Cancelled, BookingStatus::Rejected], true),
             $subject instanceof HousingRequest => $subject->status !== HousingStatus::Cancelled,
+            $subject instanceof Consultation => $subject->status !== ConsultationStatus::Cancelled,
+            $subject instanceof BeautyRequest => $subject->status !== BeautyStatus::Cancelled,
             default => false,
         };
     }
 
-    private function present(Conversation $conversation, User $viewer, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest $subject): void
+    private function present(Conversation $conversation, User $viewer, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest $subject): void
     {
         $peer = $this->peerFor($viewer, $conversation->channel, $subject);
         $conversation->setAttribute('presented_title', $this->titleFor($viewer, $conversation->channel, $subject, $peer));
@@ -342,7 +384,7 @@ class ChatService
         $conversation->setAttribute('presented_can_write', $this->canWrite($conversation, $subject));
     }
 
-    private function peerFor(User $viewer, ConversationChannel $channel, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest $subject): ?User
+    private function peerFor(User $viewer, ConversationChannel $channel, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest $subject): ?User
     {
         return match (true) {
             $subject instanceof Order => match ($channel) {
@@ -399,11 +441,23 @@ class ChatService
                     : $subject->client,
                 default => null,
             },
+            $subject instanceof Consultation => match ($channel) {
+                ConversationChannel::CustomerMedecin => $viewer->id === $subject->client_id
+                    ? $subject->medecin
+                    : $subject->client,
+                default => null,
+            },
+            $subject instanceof BeautyRequest => match ($channel) {
+                ConversationChannel::CustomerBeaute => $viewer->id === $subject->client_id
+                    ? $subject->pro
+                    : $subject->client,
+                default => null,
+            },
             default => null,
         };
     }
 
-    private function titleFor(User $viewer, ConversationChannel $channel, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest $subject, ?User $peer): string
+    private function titleFor(User $viewer, ConversationChannel $channel, Order|Job|Ride|MoneyTransfer|LodgingBooking|HousingRequest|Consultation|BeautyRequest $subject, ?User $peer): string
     {
         if ($subject instanceof Order) {
             return match ($channel) {

@@ -14,6 +14,7 @@ trait InteractsWithJob
             'is_available' => true,
             'latitude' => 33.5896,
             'longitude' => -7.6322,
+            'location_updated_at' => now(),
         ], $attrs));
     }
 
@@ -23,6 +24,7 @@ trait InteractsWithJob
             'is_available' => true,
             'latitude' => 33.5902,
             'longitude' => -7.6269,
+            'location_updated_at' => now(),
         ], $attrs));
     }
 

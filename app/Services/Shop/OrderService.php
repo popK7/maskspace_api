@@ -28,6 +28,10 @@ class OrderService
     private const TRANSITIONS = [
         'customer' => [
             'pending' => ['cancelled'],
+            'accepted' => ['cancelled'],
+            'preparing' => ['cancelled'],
+            'ready' => ['cancelled'],
+            'out_for_delivery' => ['cancelled'],
         ],
         'shop' => [
             'pending' => ['accepted', 'rejected'],

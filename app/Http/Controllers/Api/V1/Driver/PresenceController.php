@@ -13,6 +13,9 @@ class PresenceController extends Controller
     {
         $data = $request->validate(['is_available' => ['required', 'boolean']]);
         $user = $request->user();
+        if ($data['is_available']) {
+            $user->ensureVisible();
+        }
         $user->forceFill(['is_available' => (bool) $data['is_available']])->save();
 
         return response()->json(['data' => ['is_available' => (bool) $user->is_available]]);

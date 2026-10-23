@@ -39,6 +39,7 @@ class AuthService
                 'password' => $data['password'],
                 'role' => UserRole::Client,
                 'status' => UserStatus::Active,
+                'is_available' => false,
                 'is_visible' => false,
             ]);
             $user->save();
@@ -104,6 +105,7 @@ class AuthService
                     'password' => Str::password(40),
                     'role' => UserRole::Client,
                     'status' => UserStatus::Active,
+                    'is_available' => false,
                     'is_visible' => false,
                     'email_verified_at' => now(),
                 ]);
@@ -192,6 +194,9 @@ class AuthService
                 'name' => $data['name'],
                 'role' => $role,
                 'profile_completed_at' => now(),
+                'is_available' => false,
+                'is_visible' => true,
+                'activation_requested_at' => null,
             ])->save();
 
             $user->profile()->updateOrCreate([], [
@@ -207,24 +212,25 @@ class AuthService
         });
     }
 
-    /** Refuse la demande tant que le profil n'est pas complet, puis envoie le code d'activation. */
+    /** Compatibilité avec les anciennes versions : le profil complet suffit à être visible. */
     public function requestActivation(User $user): void
     {
         if ($user->isSuspended()) {
             throw ApiException::accountSuspended();
         }
-        if ($user->is_visible) {
-            return;
-        }
-        if (! $user->hasCompletedProfile()) {
+
+        $user->ensureProfileComplete();
+        if (! $user->is_visible && $user->activation_requested_at === null) {
             throw new ApiException(
-                'Complétez votre profil avant de demander à être visible.',
-                422,
-                'profile_incomplete',
+                'Votre compte est masqué. Contactez le support pour obtenir de l’aide.',
+                403,
+                'account_not_visible',
             );
         }
-
-        $user->forceFill(['activation_requested_at' => now()])->save();
+        $user->forceFill([
+            'is_visible' => true,
+            'activation_requested_at' => null,
+        ])->save();
     }
 
     private function syncShop(User $user, array $data): void

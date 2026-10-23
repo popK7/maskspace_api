@@ -13,6 +13,23 @@ class HousingRequestTest extends TestCase
 {
     use InteractsWithAuth, InteractsWithShop, RefreshDatabase;
 
+    public function test_client_can_open_multiple_housing_requests(): void
+    {
+        $client = $this->tokenFor($this->makeClient());
+        $payload = ['kind' => 'appartement', 'zone' => 'gironde'];
+
+        $firstId = $this->api($client)->postJson('/api/v1/housing-requests', $payload)
+            ->assertCreated()->assertJsonPath('data.status', 'searching')->json('data.id');
+        $secondId = $this->api($client)->postJson('/api/v1/housing-requests', $payload)
+            ->assertCreated()->assertJsonPath('data.status', 'searching')->json('data.id');
+
+        $this->assertNotSame($firstId, $secondId);
+        $this->api($client)->getJson("/api/v1/housing-requests/{$firstId}")
+            ->assertOk()->assertJsonPath('data.status', 'searching');
+        $this->api($client)->getJson("/api/v1/housing-requests/{$secondId}")
+            ->assertOk()->assertJsonPath('data.status', 'searching');
+    }
+
     public function test_demarcheurs_of_the_zone_can_answer_and_the_client_chooses(): void
     {
         $client = $this->tokenFor($this->makeClient());

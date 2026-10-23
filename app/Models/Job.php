@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\JobStatus;
+use App\Enums\JobFinalPriceStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'client_id', 'artisan_id', 'ride_id', 'trade', 'status', 'note',
     'address', 'neighborhood', 'city', 'latitude', 'longitude', 'eta_minutes',
+    'final_price_cents', 'final_price_status',
     'rating', 'review', 'cancelled_by', 'cancel_reason',
     'assigned_at', 'en_route_at', 'arrived_at', 'started_at', 'completed_at', 'cancelled_at',
 ])]
@@ -25,6 +27,8 @@ class Job extends Model
             'latitude' => 'float',
             'longitude' => 'float',
             'eta_minutes' => 'integer',
+            'final_price_cents' => 'integer',
+            'final_price_status' => JobFinalPriceStatus::class,
             'rating' => 'integer',
             'assigned_at' => 'datetime',
             'en_route_at' => 'datetime',

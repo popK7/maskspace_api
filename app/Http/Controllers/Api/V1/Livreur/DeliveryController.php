@@ -35,7 +35,9 @@ class DeliveryController extends Controller
         $me = $request->user()->id;
 
         // Hors service : aucune course proposee.
-        if (! $request->user()->is_available || ! $request->user()->is_visible) {
+        if (! $request->user()->hasCompletedProfile()
+            || ! $request->user()->is_available
+            || ! $request->user()->is_visible) {
             return response()->json(['data' => [], 'meta' => ['is_available' => false]]);
         }
 
@@ -113,6 +115,9 @@ class DeliveryController extends Controller
         $data = $request->validate(['is_available' => ['required', 'boolean']]);
 
         $user = $request->user();
+        if ($data['is_available']) {
+            $user->ensureVisible();
+        }
         $user->forceFill(['is_available' => (bool) $data['is_available']])->save();
 
         return response()->json(['data' => ['is_available' => (bool) $user->is_available]]);

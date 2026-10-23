@@ -7,7 +7,9 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['transfer_id', 'changeur_id', 'status', 'eta_minutes', 'distance_km'])]
+#[Fillable([
+    'transfer_id', 'changeur_id', 'status', 'eta_minutes', 'exchange_rate', 'fee_amount', 'distance_km',
+])]
 class TransferOffer extends Model
 {
     protected function casts(): array
@@ -15,6 +17,8 @@ class TransferOffer extends Model
         return [
             'status' => JobOfferStatus::class,
             'eta_minutes' => 'integer',
+            'exchange_rate' => 'float',
+            'fee_amount' => 'integer',
             'distance_km' => 'float',
         ];
     }

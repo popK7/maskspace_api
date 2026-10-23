@@ -2,13 +2,31 @@
 
 use App\Http\Controllers\Api\V1\Admin\AppReleaseController;
 use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
-use App\Http\Controllers\Api\V1\DownloadController;
+use App\Http\Controllers\Api\V1\Artisan\DriverController as ArtisanDriverController;
+use App\Http\Controllers\Api\V1\Artisan\JobController as ArtisanJobController;
+use App\Http\Controllers\Api\V1\Artisan\PresenceController as ArtisanPresenceController;
+use App\Http\Controllers\Api\V1\Artisan\PresenceController as ChangeurPresenceController;
 use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\Auth\EmailVerificationController;
 use App\Http\Controllers\Api\V1\Auth\MeController;
 use App\Http\Controllers\Api\V1\Auth\PasswordResetController;
+use App\Http\Controllers\Api\V1\Beaute\BeautyController as BeauteBeautyController;
+use App\Http\Controllers\Api\V1\Beauty\BeautyController;
+use App\Http\Controllers\Api\V1\Care\ConsultationController;
+use App\Http\Controllers\Api\V1\Changeur\TransferController as ChangeurTransferController;
+use App\Http\Controllers\Api\V1\ChatController;
+use App\Http\Controllers\Api\V1\Demarcheur\HousingController as DemarcheurHousingController;
+use App\Http\Controllers\Api\V1\DownloadController;
+use App\Http\Controllers\Api\V1\Driver\PresenceController as DriverPresenceController;
+use App\Http\Controllers\Api\V1\Driver\RideController as DriverRideController;
+use App\Http\Controllers\Api\V1\Hote\LodgingController as HoteLodgingController;
+use App\Http\Controllers\Api\V1\Housing\HousingRequestController;
+use App\Http\Controllers\Api\V1\Job\JobController;
+use App\Http\Controllers\Api\V1\Keur\BookingController;
+use App\Http\Controllers\Api\V1\Keur\CatalogController;
 use App\Http\Controllers\Api\V1\Livreur\DeliveryController;
 use App\Http\Controllers\Api\V1\Livreur\LocationController;
+use App\Http\Controllers\Api\V1\Medecin\ConsultationController as MedecinConsultationController;
 use App\Http\Controllers\Api\V1\Merchant\CouponController as MerchantCouponController;
 use App\Http\Controllers\Api\V1\Merchant\CourierController as MerchantCourierController;
 use App\Http\Controllers\Api\V1\Merchant\OrderController as MerchantOrderController;
@@ -16,30 +34,12 @@ use App\Http\Controllers\Api\V1\Merchant\ProductController as MerchantProductCon
 use App\Http\Controllers\Api\V1\Merchant\ReviewController as MerchantReviewController;
 use App\Http\Controllers\Api\V1\Merchant\ShopController as MerchantShopController;
 use App\Http\Controllers\Api\V1\Merchant\StatsController as MerchantStatsController;
+use App\Http\Controllers\Api\V1\Ride\RideController;
 use App\Http\Controllers\Api\V1\Shop\FavoriteController;
 use App\Http\Controllers\Api\V1\Shop\OrderController;
-use App\Http\Controllers\Api\V1\Shop\TrackingController;
 use App\Http\Controllers\Api\V1\Shop\ShopController;
-use App\Http\Controllers\Api\V1\Artisan\DriverController as ArtisanDriverController;
-use App\Http\Controllers\Api\V1\Artisan\JobController as ArtisanJobController;
-use App\Http\Controllers\Api\V1\Artisan\PresenceController as ArtisanPresenceController;
-use App\Http\Controllers\Api\V1\Driver\PresenceController as DriverPresenceController;
-use App\Http\Controllers\Api\V1\Driver\RideController as DriverRideController;
-use App\Http\Controllers\Api\V1\ChatController;
-use App\Http\Controllers\Api\V1\Artisan\PresenceController as ChangeurPresenceController;
-use App\Http\Controllers\Api\V1\Changeur\TransferController as ChangeurTransferController;
-use App\Http\Controllers\Api\V1\Job\JobController;
-use App\Http\Controllers\Api\V1\Ride\RideController;
+use App\Http\Controllers\Api\V1\Shop\TrackingController;
 use App\Http\Controllers\Api\V1\Transfer\TransferController;
-use App\Http\Controllers\Api\V1\Hote\LodgingController as HoteLodgingController;
-use App\Http\Controllers\Api\V1\Keur\BookingController;
-use App\Http\Controllers\Api\V1\Keur\CatalogController;
-use App\Http\Controllers\Api\V1\Housing\HousingRequestController;
-use App\Http\Controllers\Api\V1\Demarcheur\HousingController as DemarcheurHousingController;
-use App\Http\Controllers\Api\V1\Care\ConsultationController;
-use App\Http\Controllers\Api\V1\Medecin\ConsultationController as MedecinConsultationController;
-use App\Http\Controllers\Api\V1\Beauty\BeautyController;
-use App\Http\Controllers\Api\V1\Beaute\BeautyController as BeauteBeautyController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -103,6 +103,11 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
 
         // ---- Client : commander ----
         Route::middleware('role:client')->group(function () {
+            Route::post('rides', [RideController::class, 'store'])->middleware('throttle:20,1');
+            Route::get('rides/{ride}/offers', [RideController::class, 'offers'])->whereNumber('ride');
+            Route::post('rides/{ride}/offers/{offer}/choose', [RideController::class, 'chooseOffer'])
+                ->whereNumber(['ride', 'offer']);
+
             Route::post('orders/quote', [OrderController::class, 'quote'])->middleware('throttle:60,1');
             Route::post('orders', [OrderController::class, 'store'])->middleware('throttle:20,1');
             Route::get('orders', [OrderController::class, 'index']);
@@ -122,6 +127,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::get('jobs', [JobController::class, 'index']);
             Route::get('jobs/{job}', [JobController::class, 'show'])->whereNumber('job');
             Route::post('jobs/{job}/choose', [JobController::class, 'choose'])->whereNumber('job');
+            Route::post('jobs/{job}/accept-final-price', [JobController::class, 'acceptFinalPrice'])->whereNumber('job');
             Route::post('jobs/{job}/cancel', [JobController::class, 'cancel'])->whereNumber('job');
             Route::post('jobs/{job}/review', [JobController::class, 'review'])->whereNumber('job');
             Route::get('jobs/{job}/tracking', [JobController::class, 'tracking'])->whereNumber('job')->middleware('throttle:60,1');
@@ -177,6 +183,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::post('jobs/{job}/withdraw', [ArtisanJobController::class, 'withdraw'])->whereNumber('job');
             Route::post('jobs/{job}/en-route', [ArtisanJobController::class, 'enRoute'])->whereNumber('job');
             Route::post('jobs/{job}/arrive', [ArtisanJobController::class, 'arrive'])->whereNumber('job');
+            Route::post('jobs/{job}/final-price', [ArtisanJobController::class, 'finalPrice'])->whereNumber('job')->middleware('throttle:30,1');
             Route::post('jobs/{job}/start', [ArtisanJobController::class, 'start'])->whereNumber('job');
             Route::post('jobs/{job}/complete', [ArtisanJobController::class, 'complete'])->whereNumber('job');
             Route::post('jobs/{job}/cancel', [ArtisanJobController::class, 'cancel'])->whereNumber('job');
@@ -219,10 +226,12 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         // ---- Allo Doctors : consultations par spécialité ----
         Route::prefix('medecin')->middleware('role:medecin')->group(function () {
             Route::patch('availability', [ChangeurPresenceController::class, 'availability']);
+            Route::post('location', [MedecinConsultationController::class, 'location'])->middleware('throttle:30,1');
             Route::get('dashboard', [MedecinConsultationController::class, 'dashboard']);
             Route::get('consultations/available', [MedecinConsultationController::class, 'available']);
             Route::get('consultations', [MedecinConsultationController::class, 'index']);
             Route::post('consultations/{consultation}/offer', [MedecinConsultationController::class, 'offer'])->whereNumber('consultation')->middleware('throttle:30,1');
+            Route::post('consultations/{consultation}/price', [MedecinConsultationController::class, 'price'])->whereNumber('consultation')->middleware('throttle:20,1');
             Route::post('consultations/{consultation}/complete', [MedecinConsultationController::class, 'complete'])->whereNumber('consultation');
             Route::post('consultations/{consultation}/cancel', [MedecinConsultationController::class, 'cancel'])->whereNumber('consultation');
         });
@@ -242,6 +251,8 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         Route::prefix('changeur')->middleware('role:changeur')->group(function () {
             Route::patch('availability', [ChangeurPresenceController::class, 'availability']);
             Route::post('location', [ChangeurPresenceController::class, 'location'])->middleware('throttle:30,1');
+            Route::get('transfer-pricing', [ChangeurTransferController::class, 'pricing']);
+            Route::put('transfer-pricing', [ChangeurTransferController::class, 'updatePricing']);
             Route::get('dashboard', [ChangeurTransferController::class, 'dashboard']);
             Route::get('transfers/available', [ChangeurTransferController::class, 'available']);
             Route::get('transfers', [ChangeurTransferController::class, 'index']);
@@ -255,7 +266,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         });
 
         // ---- Transporteur : courses (dont l'acheminement d'un artisan chez un client) ----
-        Route::prefix('driver')->middleware('role:driver')->group(function () {
+        Route::prefix('driver')->middleware('role:driver,livreur')->group(function () {
             Route::patch('availability', [DriverPresenceController::class, 'availability']);
             Route::post('location', [DriverPresenceController::class, 'location'])->middleware('throttle:30,1');
             Route::get('dashboard', [DriverRideController::class, 'dashboard']);
@@ -263,6 +274,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::get('rides', [DriverRideController::class, 'index']);
             Route::get('rides/{ride}', [DriverRideController::class, 'show'])->whereNumber('ride');
             Route::post('rides/{ride}/accept', [DriverRideController::class, 'accept'])->whereNumber('ride');
+            Route::post('rides/{ride}/offer', [DriverRideController::class, 'offer'])->whereNumber('ride');
             Route::post('rides/{ride}/decline', [DriverRideController::class, 'decline'])->whereNumber('ride');
             Route::post('rides/{ride}/pickup', [DriverRideController::class, 'pickup'])->whereNumber('ride');
             Route::post('rides/{ride}/complete', [DriverRideController::class, 'complete'])->whereNumber('ride');

@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Enums\OtpPurpose;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Exceptions\ApiException;
 use App\Notifications\VerifyEmailCodeNotification;
 use App\Services\Auth\OtpService;
 use Database\Factories\UserFactory;
@@ -83,6 +85,16 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
         return $this->latitude !== null && $this->longitude !== null;
     }
 
+    public function hasFreshLocation(): bool
+    {
+        return $this->hasLocation()
+            && $this->location_updated_at !== null
+            && $this->location_updated_at->lessThanOrEqualTo(now())
+            && $this->location_updated_at->greaterThanOrEqualTo(
+                now()->subSeconds((int) config('job.stale_seconds', 90)),
+            );
+    }
+
     public function hasRole(UserRole|string ...$roles): bool
     {
         foreach ($roles as $role) {
@@ -107,14 +119,57 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
 
     public function hasCompletedProfile(): bool
     {
-        return $this->profile_completed_at !== null;
+        return $this->profile_completed_at !== null && $this->profileCompletionPercent() === 100;
+    }
+
+    public function profileCompletionPercent(): int
+    {
+        if ($this->profile_completed_at === null) {
+            return 0;
+        }
+
+        $required = [
+            filled($this->name) && $this->name !== 'Nouveau compte',
+            filled($this->email),
+            filled($this->phone),
+            $this->role !== null,
+        ];
+        $profile = $this->profile;
+
+        if ($this->role->requiresVehicle()) {
+            $required[] = filled($profile?->vehicle_model);
+            $required[] = filled($profile?->vehicle_plate);
+        }
+
+        if ($this->role->requiresShopName()) {
+            $required[] = filled($profile?->shop_name);
+        }
+
+        if ($this->role->allowedSpecialties() !== null) {
+            $required[] = is_array($profile?->specialties) && $profile->specialties !== [];
+        }
+
+        return (int) round(count(array_filter($required)) / count($required) * 100);
+    }
+
+    public function ensureProfileComplete(): void
+    {
+        if (! $this->hasCompletedProfile()) {
+            throw new ApiException(
+                'Complétez toutes les informations obligatoires de votre profil avant de passer en ligne.',
+                422,
+                'profile_incomplete',
+            );
+        }
     }
 
     public function ensureVisible(): void
     {
+        $this->ensureProfileComplete();
+
         if (! $this->is_visible) {
-            throw new \App\Exceptions\ApiException(
-                'Votre compte n’est pas encore visible. Demandez-le : un administrateur doit valider.',
+            throw new ApiException(
+                'Votre profil n’est pas visible sur MakSpace.',
                 403,
                 'account_not_visible',
             );
@@ -124,7 +179,7 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
     /** Envoie un code a 6 chiffres plutot qu'un lien (adapte au mobile). */
     public function sendEmailVerificationNotification(): void
     {
-        $code = app(OtpService::class)->issue($this->email, \App\Enums\OtpPurpose::EmailVerification);
+        $code = app(OtpService::class)->issue($this->email, OtpPurpose::EmailVerification);
         $this->notify(new VerifyEmailCodeNotification($code));
     }
 

@@ -67,6 +67,13 @@ class JobController extends Controller
         return new JobResource($this->jobs->cancel($request->user(), $job, $data['reason'] ?? null));
     }
 
+    public function acceptFinalPrice(Request $request, Job $job): JobResource
+    {
+        $this->authorizeClient($request, $job);
+
+        return new JobResource($this->jobs->acceptFinalPrice($request->user(), $job));
+    }
+
     public function review(Request $request, Job $job): JobResource
     {
         $this->authorizeClient($request, $job);

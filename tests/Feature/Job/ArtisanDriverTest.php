@@ -26,7 +26,9 @@ class ArtisanDriverTest extends TestCase
         $artisan = $this->makeArtisan();
         $token = $this->tokenFor($artisan);
         $job = $this->publishJob($client);
-        $offerId = $this->api($token)->postJson("/api/v1/artisan/jobs/{$job->id}/offer")->assertCreated()->json('data.id');
+        $offerId = $this->api($token)->postJson("/api/v1/artisan/jobs/{$job->id}/offer", [
+            'estimated_price_dh' => 150,
+        ])->assertCreated()->json('data.id');
         $this->api($client)->postJson("/api/v1/jobs/{$job->id}/choose", ['offer_id' => $offerId])->assertOk();
 
         return [$artisan, $token, $job->fresh()];

@@ -2,11 +2,12 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Consultation;
 use App\Models\ConsultationOffer;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** @mixin \App\Models\Consultation */
+/** @mixin Consultation */
 class ConsultationResource extends JsonResource
 {
     public function toArray(Request $request): array
@@ -21,7 +22,10 @@ class ConsultationResource extends JsonResource
             'id' => $this->id,
             'specialty' => $this->specialty->value,
             'mode' => $this->mode->value,
+            'region' => $this->region,
             'note' => $this->note,
+            'price_dh' => $this->price_dh,
+            'price_status' => $this->price_status ?? 'not_submitted',
             'status' => $this->status->value,
             'offers' => $offers->map(fn (ConsultationOffer $offer) => [
                 'id' => $offer->id,

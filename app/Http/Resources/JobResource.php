@@ -28,6 +28,10 @@ class JobResource extends JsonResource
             'latitude' => $this->latitude,
             'longitude' => $this->longitude,
             'eta_minutes' => $this->eta_minutes,
+            'final_price_dh' => $this->final_price_cents === null
+                ? null
+                : intdiv($this->final_price_cents, 100),
+            'final_price_status' => $this->final_price_status?->value ?? 'not_submitted',
             'rating' => $this->rating,
             'review' => $this->review,
             'cancelled_by' => $this->cancelled_by,
@@ -49,6 +53,9 @@ class JobResource extends JsonResource
                     'id' => $o->id,
                     'status' => $o->status->value,
                     'eta_minutes' => $o->eta_minutes,
+                    'estimated_price_dh' => $o->estimated_price_cents === null
+                        ? null
+                        : intdiv($o->estimated_price_cents, 100),
                     'distance_km' => $o->distance_km,
                     'artisan' => [
                         'id' => $o->artisan?->id,

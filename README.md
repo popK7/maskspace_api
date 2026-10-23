@@ -36,6 +36,10 @@ En dev, les e-mails (codes à 6 chiffres) sont écrits dans `storage/logs/larave
 
 ### Rôles et champs d'inscription
 
+Les champs de profil requis sont enregistrés après la création du compte via `POST /me/profile` :
+
+Le compte se crée d'abord avec téléphone, e-mail et mot de passe. `/me` expose `profile_completion` (0–100) et `profile_completed`. À 100 %, le profil devient visible sans validation administrative, mais reste hors ligne jusqu'à ce que le prestataire active sa disponibilité. L'API refuse le passage en ligne avant 100 %; la modération peut toujours masquer ou suspendre un compte.
+
 | `role`              | Champs supplémentaires obligatoires                                                                                                                      |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `client`            | –                                                                                                                                                        |
@@ -43,6 +47,11 @@ En dev, les e-mails (codes à 6 chiffres) sont écrits dans `storage/logs/larave
 | `artisan`           | `specialties[]` ∈ plomberie, maconnerie, electricite, jardinage, piscine, carrelage, nettoyage, peinture, menuiserie, climatisation, serrurerie, toiture |
 | `boutique`          | `shop_name`, `specialties[]` ∈ epicerie, marche, wax, beaute, artisanat, saveurs                                                                         |
 | `restaurant`        | `shop_name`, `specialties[]` ∈ senegalaise, ivoirienne, nigeriane, congolaise, ethiopienne, camerounaise                                                 |
+| `changeur`          | Au moins un pays desservi                                                                                                                               |
+| `hote`              | Au moins un type de logement proposé                                                                                                                     |
+| `demarcheur`        | Au moins un quartier couvert                                                                                                                             |
+| `medecin`           | Au moins une spécialité médicale                                                                                                                         |
+| `beaute`            | Au moins une prestation                                                                                                                                  |
 | `admin`             | non auto-inscriptible                                                                                                                                    |
 
 Protéger une route par rôle : `Route::middleware(['auth:api', 'active', 'role:driver,livreur'])`.

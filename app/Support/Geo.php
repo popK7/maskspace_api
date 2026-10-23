@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Models\User;
+
 /** Distances et tarifs d'intervention / de course. */
 class Geo
 {
@@ -18,6 +20,13 @@ class Geo
     public static function roadKm(float $km): float
     {
         return $km * (float) config('job.road_factor', 1.35);
+    }
+
+    public static function inServiceArea(User $provider, float $latitude, float $longitude): bool
+    {
+        return $provider->hasFreshLocation()
+            && self::km($provider->latitude, $provider->longitude, $latitude, $longitude)
+                <= (float) config('job.radius_km', 15);
     }
 
     public static function etaMinutes(float $km, ?float $speedKmh = null): int

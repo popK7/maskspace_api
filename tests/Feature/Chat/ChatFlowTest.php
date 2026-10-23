@@ -132,7 +132,9 @@ class ChatFlowTest extends TestCase
 
         $this->api($client)->getJson("/api/v1/chats?subject_type=job&subject_id={$job->id}")->assertNotFound();
 
-        $offerId = $this->api($artisan)->postJson("/api/v1/artisan/jobs/{$job->id}/offer")->assertCreated()->json('data.id');
+        $offerId = $this->api($artisan)->postJson("/api/v1/artisan/jobs/{$job->id}/offer", [
+            'estimated_price_dh' => 150,
+        ])->assertCreated()->json('data.id');
         $this->api($client)->postJson("/api/v1/jobs/{$job->id}/choose", ['offer_id' => $offerId])->assertOk();
 
         $cid = $this->api($client)->getJson("/api/v1/chats?subject_type=job&subject_id={$job->id}")
@@ -155,7 +157,9 @@ class ChatFlowTest extends TestCase
         $driver = $this->tokenFor($driverUser);
 
         $job = $this->publishJob($client);
-        $offerId = $this->api($artisan)->postJson("/api/v1/artisan/jobs/{$job->id}/offer")->assertCreated()->json('data.id');
+        $offerId = $this->api($artisan)->postJson("/api/v1/artisan/jobs/{$job->id}/offer", [
+            'estimated_price_dh' => 150,
+        ])->assertCreated()->json('data.id');
         $this->api($client)->postJson("/api/v1/jobs/{$job->id}/choose", ['offer_id' => $offerId])->assertOk();
         $this->api($artisan)->postJson("/api/v1/artisan/jobs/{$job->id}/ride", [
             'latitude' => 33.5896, 'longitude' => -7.6322, 'address' => 'Maârif',

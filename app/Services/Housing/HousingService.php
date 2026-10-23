@@ -16,13 +16,6 @@ class HousingService
 {
     public function publish(User $client, array $data): HousingRequest
     {
-        $active = HousingRequest::where('client_id', $client->id)
-            ->whereIn('status', [HousingStatus::Searching, HousingStatus::Assigned])
-            ->exists();
-        if ($active) {
-            throw new ApiException('Vous avez déjà une recherche de logement en cours.', 409, 'housing_active');
-        }
-
         return HousingRequest::create([
             'client_id' => $client->id,
             'kind' => $data['kind'],

@@ -19,7 +19,7 @@ class BeautyController extends Controller
     {
         $user = $request->user();
         $specialties = $this->beauty->specialtiesOf($user);
-        $open = $user->is_available && $user->is_visible
+        $open = $user->hasCompletedProfile() && $user->is_available && $user->is_visible
             ? BeautyRequest::where('status', BeautyStatus::Searching)->whereIn('specialty', $specialties)->count()
             : 0;
 
@@ -34,7 +34,7 @@ class BeautyController extends Controller
     public function available(Request $request): AnonymousResourceCollection
     {
         $user = $request->user();
-        if (! $user->is_available || ! $user->is_visible) {
+        if (! $user->hasCompletedProfile() || ! $user->is_available || ! $user->is_visible) {
             return BeautyRequestResource::collection(collect());
         }
 

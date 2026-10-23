@@ -19,7 +19,7 @@ class HousingController extends Controller
     {
         $user = $request->user();
         $zones = $this->housing->zonesOf($user);
-        $open = $user->is_available && $user->is_visible
+        $open = $user->hasCompletedProfile() && $user->is_available && $user->is_visible
             ? HousingRequest::where('status', HousingStatus::Searching)->whereIn('zone', $zones)->count()
             : 0;
 
@@ -34,7 +34,7 @@ class HousingController extends Controller
     public function available(Request $request): AnonymousResourceCollection
     {
         $user = $request->user();
-        if (! $user->is_available || ! $user->is_visible) {
+        if (! $user->hasCompletedProfile() || ! $user->is_available || ! $user->is_visible) {
             return HousingRequestResource::collection(collect());
         }
 

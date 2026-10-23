@@ -7,7 +7,7 @@ namespace App\Enums;
  *
  *   pending ─► accepted ─► preparing ─► ready ─► out_for_delivery ─► delivered
  *      │          │            │          │
- *      ├─► rejected (boutique)  └──────────┴─► cancelled (boutique / client tant que `pending`)
+ *      ├─► rejected (boutique)  └──────────┴─► cancelled (boutique / client)
  *      └─► cancelled (client)
  *
  * Retrait en boutique : ready ─► delivered (confirme par la boutique avec le code de remise).

@@ -12,6 +12,7 @@ use App\Models\ArtisanDriver;
 use App\Models\Job;
 use App\Models\MoneyTransfer;
 use App\Models\Ride;
+use App\Models\RideOffer;
 use App\Models\User;
 use App\Support\Geo;
 use Illuminate\Support\Facades\DB;
@@ -22,10 +23,6 @@ class RideService
 
     public function request(User $passenger, array $data): Ride
     {
-        if (Ride::where('passenger_id', $passenger->id)->whereIn('status', RideStatus::active())->exists()) {
-            throw new ApiException('Vous avez déjà une course en cours.', 409, 'ride_already_active');
-        }
-
         $km = Geo::km(
             $data['pickup_latitude'], $data['pickup_longitude'],
             $data['dropoff_latitude'], $data['dropoff_longitude'],
@@ -50,6 +47,93 @@ class RideService
             'offered_driver_id' => $offer['driver_id'],
             'offer_expires_at' => $offer['expires_at'],
         ]);
+    }
+
+    public function offerPrice(User $driver, Ride $ride, int $priceCents): RideOffer
+    {
+        $driver->ensureVisible();
+        if (! $driver->hasRole(UserRole::Driver, UserRole::Livreur)) {
+            throw new ApiException('Compte transporteur requis.', 403, 'forbidden_role');
+        }
+        if (! $driver->is_available) {
+            throw new ApiException('Passez en service pour proposer un prix.', 409, 'driver_unavailable');
+        }
+        if (! $driver->hasFreshLocation()) {
+            throw new ApiException('Activez le partage de position avant de proposer un prix.', 409, 'location_required');
+        }
+
+        return DB::transaction(function () use ($driver, $ride, $priceCents) {
+            $ride = Ride::whereKey($ride->id)->lockForUpdate()->firstOrFail();
+            if ($ride->status !== RideStatus::Searching || $ride->job_id !== null || $ride->transfer_id !== null) {
+                throw new ApiException('Cette course n’accepte plus de propositions.', 409, 'ride_not_searching');
+            }
+            if (! Geo::inServiceArea($driver, $ride->pickup_latitude, $ride->pickup_longitude)) {
+                throw new ApiException('Cette course est hors de votre zone de service actuelle.', 409, 'outside_service_area');
+            }
+            if (Ride::where('driver_id', $driver->id)->whereIn('status', RideStatus::active())->exists()) {
+                throw new ApiException('Vous avez déjà une course en cours.', 409, 'ride_already_active');
+            }
+
+            $distance = Geo::km(
+                $driver->latitude,
+                $driver->longitude,
+                $ride->pickup_latitude,
+                $ride->pickup_longitude,
+            );
+
+            return RideOffer::updateOrCreate(
+                ['ride_id' => $ride->id, 'driver_id' => $driver->id],
+                [
+                    'status' => 'pending',
+                    'price_cents' => $priceCents,
+                    'eta_minutes' => Geo::etaMinutes($distance),
+                    'distance_to_pickup_km' => round($distance, 2),
+                ],
+            );
+        });
+    }
+
+    public function chooseOffer(User $passenger, Ride $ride, RideOffer $offer): Ride
+    {
+        return DB::transaction(function () use ($passenger, $ride, $offer) {
+            $ride = Ride::whereKey($ride->id)->lockForUpdate()->firstOrFail();
+            if ($ride->passenger_id !== $passenger->id) {
+                throw new ApiException('Course introuvable.', 404, 'ride_not_found');
+            }
+            if ($ride->status !== RideStatus::Searching) {
+                throw new ApiException('Cette course n’accepte plus de propositions.', 409, 'ride_not_searching');
+            }
+
+            $offer = RideOffer::whereKey($offer->id)->where('ride_id', $ride->id)->lockForUpdate()->firstOrFail();
+            if ($offer->status !== 'pending') {
+                throw new ApiException('Cette proposition n’est plus disponible.', 409, 'offer_not_pending');
+            }
+
+            $driver = User::whereKey($offer->driver_id)->lockForUpdate()->firstOrFail();
+            $driver->ensureVisible();
+            if (! $driver->is_available || ! $driver->hasFreshLocation()
+                || ! Geo::inServiceArea($driver, $ride->pickup_latitude, $ride->pickup_longitude)) {
+                throw new ApiException('Ce transporteur n’est plus disponible dans cette zone.', 409, 'driver_unavailable');
+            }
+            if (Ride::where('driver_id', $driver->id)->whereIn('status', RideStatus::active())->exists()) {
+                throw new ApiException('Ce transporteur vient d’accepter une autre course.', 409, 'driver_unavailable');
+            }
+
+            $ride->forceFill([
+                'driver_id' => $driver->id,
+                'status' => RideStatus::Accepted,
+                'price_cents' => $offer->price_cents,
+                'eta_minutes' => $offer->eta_minutes,
+                'accepted_at' => now(),
+            ])->save();
+            $offer->forceFill(['status' => 'chosen'])->save();
+            RideOffer::where('ride_id', $ride->id)
+                ->where('id', '!=', $offer->id)
+                ->where('status', 'pending')
+                ->update(['status' => 'declined']);
+
+            return $ride->fresh(['passenger', 'driver.profile', 'offers']);
+        });
     }
 
     /** Recible une course encore en recherche : un habituel, ou tout le monde. */
@@ -82,6 +166,10 @@ class RideService
             }
             if ($ride->hasActiveOffer() && $ride->offered_driver_id !== $driver->id) {
                 throw new ApiException('Cette course est réservée à un autre transporteur.', 409, 'ride_reserved');
+            }
+            if (! $ride->hasActiveOffer()
+                && ! Geo::inServiceArea($driver, $ride->pickup_latitude, $ride->pickup_longitude)) {
+                throw new ApiException('Cette course est hors de votre zone de service actuelle.', 409, 'outside_service_area');
             }
             if (Ride::where('driver_id', $driver->id)->whereIn('status', RideStatus::active())->exists()) {
                 throw new ApiException('Vous avez déjà une course en cours.', 409, 'ride_already_active');
@@ -182,10 +270,6 @@ class RideService
             if ($ride->status->isFinal()) {
                 throw new ApiException('Cette course est déjà close.', 409, 'ride_closed');
             }
-            if ($ride->status === RideStatus::InProgress && $asPassenger) {
-                throw new ApiException('La course a déjà commencé.', 409, 'ride_started');
-            }
-
             $this->cancelLocked($ride, $reason);
 
             return $ride->fresh(['passenger', 'driver.profile']);

@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Enums\JobOfferStatus;
+use App\Enums\TransferCurrency;
 use App\Models\MoneyTransfer;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -21,6 +22,7 @@ class TransferResource extends JsonResource
             'id' => $this->id,
             'amount' => $this->amount,
             'currency' => $this->currency->value,
+            'destination_currency' => TransferCurrency::destinationFor($this->destination_country),
             'destination_country' => $this->destination_country,
             'status' => $this->status->value,
             'note' => $this->note,
@@ -46,11 +48,20 @@ class TransferResource extends JsonResource
                 'specialties' => $this->changeur->profile?->specialties ?? [],
             ]),
             'offers' => $this->when($asClient && $this->relationLoaded('offers'), fn () => $this->offers
-                ->filter(fn ($o) => $o->status === JobOfferStatus::Pending || $o->status === JobOfferStatus::Chosen)
+                ->filter(fn ($o) => $o->status === JobOfferStatus::Chosen
+                    || ($o->status === JobOfferStatus::Pending
+                        && $o->exchange_rate !== null
+                        && $o->fee_amount !== null))
                 ->map(fn ($o) => [
                     'id' => $o->id,
                     'status' => $o->status->value,
                     'eta_minutes' => $o->eta_minutes,
+                    'exchange_rate' => $o->exchange_rate,
+                    'fee_amount' => $o->fee_amount,
+                    'recipient_currency' => TransferCurrency::destinationFor($this->destination_country),
+                    'recipient_amount' => $o->exchange_rate !== null && $o->fee_amount !== null
+                        ? (int) round(($this->amount - $o->fee_amount) * $o->exchange_rate)
+                        : null,
                     'distance_km' => $o->distance_km,
                     'changeur' => [
                         'id' => $o->changeur?->id,

@@ -68,6 +68,7 @@ class UserFactory extends Factory
                 default => [],
             };
             $user->profile()->create([...$defaults, ...$overrides]);
+            $user->forceFill(['profile_completed_at' => now()])->save();
         });
     }
 }

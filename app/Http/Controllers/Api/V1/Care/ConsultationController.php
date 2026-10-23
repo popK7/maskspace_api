@@ -22,6 +22,9 @@ class ConsultationController extends Controller
         $data = $request->validate([
             'specialty' => ['required', Rule::enum(MedicalSpecialty::class)],
             'mode' => ['nullable', Rule::enum(ConsultationMode::class)],
+            'region' => ['nullable', 'string', 'max:100'],
+            'latitude' => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
             'note' => ['nullable', 'string', 'max:500'],
         ]);
 

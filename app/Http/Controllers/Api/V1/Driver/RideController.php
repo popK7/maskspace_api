@@ -19,9 +19,10 @@ class RideController extends Controller
     public function available(Request $request): JsonResponse
     {
         $user = $request->user();
-        if (! $user->is_available || ! $user->is_visible) {
+        if (! $user->hasCompletedProfile() || ! $user->is_available || ! $user->is_visible) {
             return response()->json(['data' => [], 'meta' => ['is_available' => false]]);
         }
+        $hasFreshLocation = $user->hasFreshLocation();
 
         $radius = (float) config('job.radius_km', 15);
 
@@ -34,13 +35,13 @@ class RideController extends Controller
                     ->orWhere('offer_expires_at', '<=', now());
             })
             ->latest('id')->limit(50)->get()
-            ->map(function (Ride $ride) use ($user, $radius) {
+            ->map(function (Ride $ride) use ($user, $radius, $hasFreshLocation) {
                 $reserved = $ride->hasActiveOffer() && $ride->offered_driver_id === $user->id;
-                $km = $user->hasLocation()
+                $km = $hasFreshLocation
                     ? round(Geo::km($user->latitude, $user->longitude, $ride->pickup_latitude, $ride->pickup_longitude), 2)
                     : null;
                 // Un appel direct doit toujours arriver au chauffeur vise, meme hors rayon.
-                if (! $reserved && $km !== null && $km > $radius) {
+                if (! $reserved && ($km === null || $km > $radius)) {
                     return null;
                 }
 
@@ -48,9 +49,12 @@ class RideController extends Controller
                     'id' => $ride->id,
                     'job_id' => $ride->job_id,
                     'transfer_id' => $ride->transfer_id,
+                    'quoteable' => $ride->job_id === null && $ride->transfer_id === null,
                     'passenger' => ['name' => $ride->passenger?->name, 'role' => $ride->passenger?->role->value],
                     'pickup_neighborhood' => $this->short($ride->pickup_address),
                     'dropoff_neighborhood' => $this->short($ride->dropoff_address),
+                    'pickup_latitude' => (float) $ride->pickup_latitude,
+                    'pickup_longitude' => (float) $ride->pickup_longitude,
                     'distance_km' => $ride->distance_km,
                     'price_cents' => $ride->price_cents,
                     'eta_minutes' => $ride->eta_minutes,
@@ -64,7 +68,10 @@ class RideController extends Controller
             ->sortBy(fn ($a) => $a['distance_to_pickup_km'] ?? INF)
             ->values();
 
-        return response()->json(['data' => $rows, 'meta' => ['is_available' => true]]);
+        return response()->json([
+            'data' => $rows,
+            'meta' => ['is_available' => true, 'location_required' => ! $hasFreshLocation],
+        ]);
     }
 
     public function index(Request $request): AnonymousResourceCollection
@@ -87,6 +94,23 @@ class RideController extends Controller
     public function accept(Request $request, Ride $ride): RideResource
     {
         return new RideResource($this->rides->accept($request->user(), $ride));
+    }
+
+    public function offer(Request $request, Ride $ride): JsonResponse
+    {
+        $data = $request->validate([
+            'price_cents' => ['required', 'integer', 'min:100', 'max:5000000'],
+        ]);
+        $offer = $this->rides->offerPrice($request->user(), $ride, $data['price_cents']);
+
+        return response()->json(['data' => [
+            'id' => $offer->id,
+            'ride_id' => $offer->ride_id,
+            'status' => $offer->status,
+            'price_cents' => $offer->price_cents,
+            'eta_minutes' => $offer->eta_minutes,
+            'distance_to_pickup_km' => $offer->distance_to_pickup_km,
+        ]], 201);
     }
 
     public function decline(Request $request, Ride $ride): RideResource

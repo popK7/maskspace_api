@@ -182,10 +182,6 @@ class LodgingService
         if ($booking->status->isFinal()) {
             throw new ApiException('Cette réservation est déjà close.', 409, 'booking_closed');
         }
-        if ($booking->status === BookingStatus::Accepted && $asClient && $booking->check_in->lte(now()->startOfDay())) {
-            throw new ApiException('Le séjour a déjà commencé.', 409, 'booking_started');
-        }
-
         $booking->forceFill([
             'status' => BookingStatus::Cancelled,
             'cancelled_by' => $asClient ? 'client' : 'host',

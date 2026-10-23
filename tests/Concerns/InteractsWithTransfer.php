@@ -14,6 +14,7 @@ trait InteractsWithTransfer
             'is_available' => true,
             'latitude' => 33.5896,
             'longitude' => -7.6322,
+            'location_updated_at' => now(),
         ], $attrs));
     }
 

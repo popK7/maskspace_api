@@ -28,7 +28,7 @@ class EmailVerificationController extends Controller
         ]);
     }
 
-    /** POST /auth/activation — envoie le code une fois le profil complet. */
+    /** POST /auth/activation — compatibilité avec les anciennes versions mobiles. */
     public function requestActivation(Request $request): JsonResponse
     {
         /** @var User $user */
@@ -36,9 +36,9 @@ class EmailVerificationController extends Controller
         $this->auth->requestActivation($user);
 
         return response()->json([
-            'message' => 'Demande envoyée. Un administrateur vérifie votre compte avant de le rendre visible.',
+            'message' => 'Votre profil est prêt. Vous pouvez maintenant gérer votre disponibilité.',
             'user' => new UserResource($user->fresh('profile')),
-        ], 202);
+        ]);
     }
 
     /** POST /auth/email/resend — renvoie un code (202). */

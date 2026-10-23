@@ -23,8 +23,11 @@ class JobController extends Controller
     public function available(Request $request): JsonResponse
     {
         $user = $request->user()->loadMissing('profile');
-        if (! $user->is_available || ! $user->is_visible) {
+        if (! $user->hasCompletedProfile() || ! $user->is_available || ! $user->is_visible) {
             return response()->json(['data' => [], 'meta' => ['is_available' => false]]);
+        }
+        if (! $user->hasFreshLocation()) {
+            return response()->json(['data' => [], 'meta' => ['is_available' => true, 'location_required' => true]]);
         }
 
         $trades = $user->profile?->specialties ?? [];
@@ -37,10 +40,8 @@ class JobController extends Controller
             ->whereNotIn('id', $offered)
             ->latest('id')->limit(50)->get()
             ->map(function (Job $job) use ($user, $radius) {
-                $km = $user->hasLocation()
-                    ? round(Geo::km($user->latitude, $user->longitude, $job->latitude, $job->longitude), 2)
-                    : null;
-                if ($km !== null && $km > $radius) {
+                $km = round(Geo::km($user->latitude, $user->longitude, $job->latitude, $job->longitude), 2);
+                if ($km > $radius) {
                     return null;
                 }
 
@@ -52,7 +53,7 @@ class JobController extends Controller
                     'city' => $job->city,
                     'client' => ['name' => $job->client?->name],
                     'distance_km' => $km,
-                    'eta_minutes' => $km !== null ? Geo::etaMinutes($km) : null,
+                    'eta_minutes' => Geo::etaMinutes($km),
                     'created_at' => $job->created_at?->toIso8601String(),
                 ];
             })
@@ -82,13 +83,22 @@ class JobController extends Controller
 
     public function offer(Request $request, Job $job): JsonResponse
     {
-        $data = $request->validate(['eta_minutes' => ['nullable', 'integer', 'between:1,180']]);
-        $offer = $this->jobs->offer($request->user(), $job, $data['eta_minutes'] ?? null);
+        $data = $request->validate([
+            'estimated_price_dh' => ['required', 'integer', 'between:1,10000000'],
+            'eta_minutes' => ['nullable', 'integer', 'between:1,180'],
+        ]);
+        $offer = $this->jobs->offer(
+            $request->user(),
+            $job,
+            (int) $data['estimated_price_dh'],
+            $data['eta_minutes'] ?? null,
+        );
 
         return response()->json(['data' => [
             'id' => $offer->id,
             'status' => $offer->status->value,
             'eta_minutes' => $offer->eta_minutes,
+            'estimated_price_dh' => intdiv($offer->estimated_price_cents, 100),
             'distance_km' => $offer->distance_km,
             'job_id' => $offer->job_id,
         ]], 201);
@@ -120,6 +130,20 @@ class JobController extends Controller
         $this->authorizeArtisan($request, $job);
 
         return new JobResource($this->jobs->start($request->user(), $job));
+    }
+
+    public function finalPrice(Request $request, Job $job): JobResource
+    {
+        $this->authorizeArtisan($request, $job);
+        $data = $request->validate([
+            'final_price_dh' => ['required', 'integer', 'between:1,10000000'],
+        ]);
+
+        return new JobResource($this->jobs->submitFinalPrice(
+            $request->user(),
+            $job,
+            (int) $data['final_price_dh'],
+        ));
     }
 
     public function complete(Request $request, Job $job): JobResource

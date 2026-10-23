@@ -4,6 +4,7 @@ namespace Tests\Feature\Keur;
 
 use App\Enums\BookingStatus;
 use App\Enums\UserRole;
+use App\Models\LodgingBooking;
 use App\Models\Lodging;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -145,6 +146,26 @@ class LodgingBookingTest extends TestCase
         ])->assertCreated()->json('data.id');
 
         $this->api($client)->postJson("/api/v1/bookings/{$id}/cancel")->assertOk()
+            ->assertJsonPath('data.status', BookingStatus::Cancelled->value);
+    }
+
+    public function test_client_can_cancel_an_accepted_booking_after_check_in(): void
+    {
+        $hostUser = $this->makeHost();
+        $host = $this->tokenFor($hostUser);
+        $client = $this->tokenFor($this->makeClient());
+        $lodging = $this->makeLodging($hostUser);
+        $bookingId = $this->api($client)->postJson('/api/v1/bookings', [
+            'lodging_id' => $lodging->id,
+            'check_in' => now()->addDays(2)->toDateString(),
+            'check_out' => now()->addDays(5)->toDateString(),
+            'guests' => 1,
+        ])->assertCreated()->json('data.id');
+
+        $this->api($host)->postJson("/api/v1/hote/bookings/{$bookingId}/accept")->assertOk();
+        LodgingBooking::whereKey($bookingId)->update(['check_in' => now()->toDateString()]);
+
+        $this->api($client)->postJson("/api/v1/bookings/{$bookingId}/cancel")->assertOk()
             ->assertJsonPath('data.status', BookingStatus::Cancelled->value);
     }
 

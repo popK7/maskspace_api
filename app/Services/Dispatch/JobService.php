@@ -3,6 +3,7 @@
 namespace App\Services\Dispatch;
 
 use App\Enums\JobOfferStatus;
+use App\Enums\JobFinalPriceStatus;
 use App\Enums\JobStatus;
 use App\Enums\RideStatus;
 use App\Enums\UserRole;
@@ -23,8 +24,6 @@ class JobService
 
     public function publish(User $client, array $data): Job
     {
-        $this->assertNoActive($client, 'client_id', 'Vous avez déjà une intervention en cours.');
-
         return Job::create([
             'client_id' => $client->id,
             'trade' => $data['trade'],
@@ -38,12 +37,15 @@ class JobService
         ]);
     }
 
-    public function offer(User $artisan, Job $job, ?int $etaMinutes = null): JobOffer
+    public function offer(User $artisan, Job $job, int $estimatedPriceDh, ?int $etaMinutes = null): JobOffer
     {
         $artisan->loadMissing('profile');
         $this->assertArtisanReady($artisan, $job->trade);
+        if (! Geo::inServiceArea($artisan, $job->latitude, $job->longitude)) {
+            throw new ApiException('Cette demande est hors de votre zone de service actuelle.', 409, 'outside_service_area');
+        }
 
-        return DB::transaction(function () use ($artisan, $job, $etaMinutes) {
+        return DB::transaction(function () use ($artisan, $job, $estimatedPriceDh, $etaMinutes) {
             $job = Job::whereKey($job->id)->lockForUpdate()->firstOrFail();
             if ($job->status !== JobStatus::Searching) {
                 throw new ApiException('Cette demande n’est plus ouverte.', 409, 'job_not_searching');
@@ -57,7 +59,7 @@ class JobService
                 throw new ApiException('Vous ne pouvez plus vous proposer sur cette demande.', 409, 'offer_closed');
             }
 
-            $km = $artisan->hasLocation()
+            $km = $artisan->hasFreshLocation()
                 ? round(Geo::km($artisan->latitude, $artisan->longitude, $job->latitude, $job->longitude), 2)
                 : null;
 
@@ -66,6 +68,7 @@ class JobService
                 'artisan_id' => $artisan->id,
                 'status' => JobOfferStatus::Pending,
                 'eta_minutes' => $etaMinutes ?? ($km !== null ? Geo::etaMinutes($km) : 15),
+                'estimated_price_cents' => $estimatedPriceDh * 100,
                 'distance_km' => $km,
             ]);
         });
@@ -99,6 +102,9 @@ class JobService
             $artisan = User::whereKey($offer->artisan_id)->lockForUpdate()->firstOrFail();
             $artisan->loadMissing('profile');
             $this->assertArtisanReady($artisan, $job->trade);
+            if (! Geo::inServiceArea($artisan, $job->latitude, $job->longitude)) {
+                throw new ApiException('Cet artisan n’est plus dans la zone de cette demande.', 409, 'outside_service_area');
+            }
 
             $job->forceFill([
                 'artisan_id' => $artisan->id,
@@ -136,7 +142,60 @@ class JobService
 
     public function start(User $artisan, Job $job): Job
     {
-        return $this->transition($job, $artisan, JobStatus::Arrived, JobStatus::InProgress, ['started_at' => now()]);
+        return DB::transaction(function () use ($artisan, $job) {
+            $job = Job::whereKey($job->id)->lockForUpdate()->firstOrFail();
+            if ($job->status !== JobStatus::Arrived) {
+                throw new ApiException('Cette action n’est pas possible maintenant.', 409, 'job_bad_status');
+            }
+            $this->assertOwner($job, artisan: $artisan);
+            if ($job->final_price_status !== JobFinalPriceStatus::Accepted) {
+                throw new ApiException('Attendez l’accord du client sur le prix final.', 409, 'final_price_not_accepted');
+            }
+            $job->forceFill(['status' => JobStatus::InProgress, 'started_at' => now()])->save();
+
+            return $job->fresh(['artisan.profile', 'client', 'ride.driver.profile']);
+        });
+    }
+
+    public function submitFinalPrice(User $artisan, Job $job, int $priceDh): Job
+    {
+        return DB::transaction(function () use ($artisan, $job, $priceDh) {
+            $job = Job::whereKey($job->id)->lockForUpdate()->firstOrFail();
+            $this->assertOwner($job, artisan: $artisan);
+            if ($job->status !== JobStatus::Arrived) {
+                throw new ApiException('Le prix final peut être envoyé après votre arrivée.', 409, 'job_bad_status');
+            }
+            if ($job->final_price_status === JobFinalPriceStatus::Accepted) {
+                throw new ApiException('Le prix final a déjà été accepté.', 409, 'final_price_already_accepted');
+            }
+
+            $job->forceFill([
+                'final_price_cents' => $priceDh * 100,
+                'final_price_status' => JobFinalPriceStatus::Pending,
+            ])->save();
+
+            return $job->fresh(['artisan.profile', 'client', 'offers.artisan.profile']);
+        });
+    }
+
+    public function acceptFinalPrice(User $client, Job $job): Job
+    {
+        return DB::transaction(function () use ($client, $job) {
+            $job = Job::whereKey($job->id)->lockForUpdate()->firstOrFail();
+            $this->assertOwner($job, client: $client);
+            if ($job->status !== JobStatus::Arrived) {
+                throw new ApiException('Le prix final pourra être accepté après l’arrivée de l’artisan.', 409, 'job_bad_status');
+            }
+            if ($job->final_price_status !== JobFinalPriceStatus::Pending) {
+                throw new ApiException('Aucun prix final n’attend votre accord.', 409, 'final_price_not_pending');
+            }
+
+            $job->forceFill([
+                'final_price_status' => JobFinalPriceStatus::Accepted,
+            ])->save();
+
+            return $job->fresh(['artisan.profile', 'client', 'offers.artisan.profile']);
+        });
     }
 
     public function complete(User $artisan, Job $job): Job
@@ -151,10 +210,6 @@ class JobService
             if ($job->status->isFinal()) {
                 throw new ApiException('Cette intervention est déjà close.', 409, 'job_closed');
             }
-            if (in_array($job->status, [JobStatus::Arrived, JobStatus::InProgress], true)) {
-                throw new ApiException('L’intervention a déjà commencé.', 409, 'job_started');
-            }
-
             $asClient = $job->client_id === $actor->id;
             $asArtisan = $job->artisan_id === $actor->id;
             if (! $asClient && ! $asArtisan) {
@@ -287,14 +342,6 @@ class JobService
         }
         if ($client && $job->client_id !== $client->id) {
             throw new ApiException('Intervention introuvable.', 404, 'job_not_found');
-        }
-    }
-
-    private function assertNoActive(User $user, string $column, string $message): void
-    {
-        $exists = Job::where($column, $user->id)->whereIn('status', JobStatus::active())->exists();
-        if ($exists) {
-            throw new ApiException($message, 409, 'job_already_active');
         }
     }
 

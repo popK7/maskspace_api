@@ -184,7 +184,7 @@ class OrderFlowTest extends TestCase
         $this->api($token)->postJson("/api/v1/orders/{$id}/cancel")->assertStatus(409);
     }
 
-    public function test_customer_cannot_cancel_once_accepted(): void
+    public function test_customer_can_cancel_an_accepted_order(): void
     {
         $merchant = $this->makeMerchant();
         $product = $this->makeProduct($merchant->shop);
@@ -195,7 +195,7 @@ class OrderFlowTest extends TestCase
         $this->api($m)->postJson("/api/v1/merchant/orders/{$id}/accept")->assertOk();
 
         $this->api($token)->postJson("/api/v1/orders/{$id}/cancel")
-            ->assertStatus(409)->assertJsonPath('code', 'invalid_transition');
+            ->assertOk()->assertJsonPath('data.status', 'cancelled');
     }
 
     public function test_orders_are_private_between_customers(): void

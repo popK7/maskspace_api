@@ -41,7 +41,11 @@ class TransferController extends Controller
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $rows = MoneyTransfer::with(['changeur.profile', 'ride.driver.profile'])
+        $rows = MoneyTransfer::with([
+            'changeur.profile',
+            'offers.changeur.profile',
+            'ride.driver.profile',
+        ])
             ->where('client_id', $request->user()->id)
             ->latest('id')
             ->paginate(min(50, (int) $request->integer('per_page', 20)));

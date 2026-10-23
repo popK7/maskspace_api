@@ -15,13 +15,6 @@ class BeautyService
 {
     public function publish(User $client, array $data): BeautyRequest
     {
-        $active = BeautyRequest::where('client_id', $client->id)
-            ->whereIn('status', [BeautyStatus::Searching, BeautyStatus::Assigned])
-            ->exists();
-        if ($active) {
-            throw new ApiException('Vous avez déjà une demande Soins et beauté en cours.', 409, 'beauty_active');
-        }
-
         return BeautyRequest::create([
             'client_id' => $client->id,
             'specialty' => $data['specialty'],

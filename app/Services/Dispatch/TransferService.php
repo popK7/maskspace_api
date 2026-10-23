@@ -23,8 +23,6 @@ class TransferService
 
     public function publish(User $client, array $data): MoneyTransfer
     {
-        $this->assertNoActive($client, 'client_id', 'Vous avez déjà un transfert en cours.');
-
         return MoneyTransfer::create([
             'client_id' => $client->id,
             'amount' => $data['amount'],
@@ -40,12 +38,21 @@ class TransferService
         ]);
     }
 
-    public function offer(User $changeur, MoneyTransfer $transfer, ?int $etaMinutes = null): TransferOffer
+    public function offer(
+        User $changeur,
+        MoneyTransfer $transfer,
+        float $exchangeRate,
+        int $feeAmount,
+        ?int $etaMinutes = null,
+    ): TransferOffer
     {
         $changeur->loadMissing('profile');
         $this->assertChangeurReady($changeur, $transfer->destination_country);
+        if (! Geo::inServiceArea($changeur, $transfer->latitude, $transfer->longitude)) {
+            throw new ApiException('Cette demande est hors de votre zone de service actuelle.', 409, 'outside_service_area');
+        }
 
-        return DB::transaction(function () use ($changeur, $transfer, $etaMinutes) {
+        return DB::transaction(function () use ($changeur, $transfer, $exchangeRate, $feeAmount, $etaMinutes) {
             $transfer = MoneyTransfer::whereKey($transfer->id)->lockForUpdate()->firstOrFail();
             if ($transfer->status !== TransferStatus::Searching) {
                 throw new ApiException('Cette demande n’est plus ouverte.', 409, 'transfer_not_searching');
@@ -53,13 +60,19 @@ class TransferService
 
             $existing = TransferOffer::where('transfer_id', $transfer->id)->where('changeur_id', $changeur->id)->first();
             if ($existing && $existing->status === JobOfferStatus::Pending) {
-                return $existing;
+                $existing->forceFill([
+                    'exchange_rate' => $exchangeRate,
+                    'fee_amount' => $feeAmount,
+                    'eta_minutes' => $etaMinutes ?? $existing->eta_minutes,
+                ])->save();
+
+                return $existing->fresh();
             }
             if ($existing) {
                 throw new ApiException('Vous ne pouvez plus vous proposer sur cette demande.', 409, 'offer_closed');
             }
 
-            $km = $changeur->hasLocation()
+            $km = $changeur->hasFreshLocation()
                 ? round(Geo::km($changeur->latitude, $changeur->longitude, $transfer->latitude, $transfer->longitude), 2)
                 : null;
 
@@ -68,6 +81,8 @@ class TransferService
                 'changeur_id' => $changeur->id,
                 'status' => JobOfferStatus::Pending,
                 'eta_minutes' => $etaMinutes ?? ($km !== null ? Geo::etaMinutes($km) : 15),
+                'exchange_rate' => $exchangeRate,
+                'fee_amount' => $feeAmount,
                 'distance_km' => $km,
             ]);
         });
@@ -97,10 +112,18 @@ class TransferService
             if ($offer->status !== JobOfferStatus::Pending) {
                 throw new ApiException('Cette proposition n’est plus valable.', 409, 'offer_not_pending');
             }
+            if ($offer->exchange_rate === null
+                || $offer->fee_amount === null
+                || $offer->fee_amount >= $transfer->amount) {
+                throw new ApiException('Cette proposition ne contient pas de devis valide.', 409, 'offer_quote_missing');
+            }
 
             $changeur = User::whereKey($offer->changeur_id)->lockForUpdate()->firstOrFail();
             $changeur->loadMissing('profile');
             $this->assertChangeurReady($changeur, $transfer->destination_country);
+            if (! Geo::inServiceArea($changeur, $transfer->latitude, $transfer->longitude)) {
+                throw new ApiException('Ce changeur n’est plus dans la zone de cette demande.', 409, 'outside_service_area');
+            }
 
             $transfer->forceFill([
                 'changeur_id' => $changeur->id,
@@ -155,10 +178,6 @@ class TransferService
             if ($transfer->status->isFinal()) {
                 throw new ApiException('Ce transfert est déjà clos.', 409, 'transfer_closed');
             }
-            if ($transfer->status === TransferStatus::Meeting) {
-                throw new ApiException('La rencontre a déjà commencé.', 409, 'transfer_started');
-            }
-
             $asClient = $transfer->client_id === $actor->id;
             $asChangeur = $transfer->changeur_id === $actor->id;
             if (! $asClient && ! $asChangeur) {
@@ -286,14 +305,6 @@ class TransferService
     {
         if ($transfer->client_id !== $actor->id && $transfer->changeur_id !== $actor->id) {
             throw new ApiException('Transfert introuvable.', 404, 'transfer_not_found');
-        }
-    }
-
-    private function assertNoActive(User $user, string $column, string $message): void
-    {
-        $exists = MoneyTransfer::where($column, $user->id)->whereIn('status', TransferStatus::active())->exists();
-        if ($exists) {
-            throw new ApiException($message, 409, 'transfer_already_active');
         }
     }
 

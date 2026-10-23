@@ -10,11 +10,12 @@ use Illuminate\Support\Facades\Notification;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\InteractsWithAuth;
+use Tests\Concerns\InteractsWithShop;
 use Tests\TestCase;
 
 class RegistrationTest extends TestCase
 {
-    use InteractsWithAuth, RefreshDatabase;
+    use InteractsWithAuth, InteractsWithShop, RefreshDatabase;
 
     public static function selfRegistrableRoles(): array
     {
@@ -35,6 +36,8 @@ class RegistrationTest extends TestCase
             ->assertJsonPath('user.role', 'client')
             ->assertJsonPath('user.status', 'active')
             ->assertJsonPath('user.is_visible', false)
+            ->assertJsonPath('user.is_available', false)
+            ->assertJsonPath('user.profile_completion', 0)
             ->assertJsonPath('user.profile_completed', false)
             ->assertJsonPath('user.email_verified', false)
             ->assertJsonStructure(['user' => ['id', 'name', 'email', 'phone', 'role', 'profile'],
@@ -56,12 +59,14 @@ class RegistrationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.role', $role->value)
             ->assertJsonPath('data.profile_completed', true)
-            ->assertJsonPath('data.is_visible', false);
+            ->assertJsonPath('data.profile_completion', 100)
+            ->assertJsonPath('data.is_visible', true)
+            ->assertJsonPath('data.is_available', false);
 
         $this->api($token)->postJson('/api/v1/auth/activation')
-            ->assertStatus(202)
-            ->assertJsonPath('user.activation_requested', true)
-            ->assertJsonPath('user.is_visible', false);
+            ->assertOk()
+            ->assertJsonPath('user.activation_requested', false)
+            ->assertJsonPath('user.is_visible', true);
         Notification::assertNothingSent();
 
         $payload = JWTAuth::setToken($token)->getPayload();
@@ -174,7 +179,57 @@ class RegistrationTest extends TestCase
 
         $this->api($token)->postJson('/api/v1/me/profile', $this->registrationPayload(UserRole::Client))
             ->assertOk()
+            ->assertJsonPath('data.profile_completion', 100)
             ->assertJsonPath('data.profile.vehicle_model', null);
+    }
+
+    public function test_provider_can_go_online_after_completing_profile_without_admin_activation(): void
+    {
+        $provider = User::factory()->role(UserRole::Artisan)->create([
+            'is_available' => false,
+            'is_visible' => false,
+        ]);
+        $token = $this->tokenFor($provider);
+
+        $this->api($token)->patchJson('/api/v1/artisan/availability', [
+            'is_available' => true,
+        ])->assertStatus(422)->assertJsonPath('code', 'profile_incomplete');
+
+        $this->api($token)->postJson('/api/v1/me/profile', $this->registrationPayload(UserRole::Artisan, [
+            'email' => $provider->email,
+            'name' => $provider->name,
+            'phone' => $provider->phone,
+        ]))->assertOk()->assertJsonPath('data.profile_completion', 100);
+
+        $this->api($token)->patchJson('/api/v1/artisan/availability', [
+            'is_available' => true,
+        ])->assertOk()->assertJsonPath('data.is_available', true);
+    }
+
+    public function test_driver_cannot_go_online_before_profile_completion(): void
+    {
+        $driver = User::factory()->role(UserRole::Driver)->create([
+            'is_available' => false,
+            'is_visible' => false,
+        ]);
+        $token = $this->tokenFor($driver);
+
+        $this->api($token)->patchJson('/api/v1/driver/availability', [
+            'is_available' => true,
+        ])->assertStatus(422)->assertJsonPath('code', 'profile_incomplete');
+    }
+
+    public function test_admin_hidden_profile_cannot_be_reactivated_by_legacy_endpoint(): void
+    {
+        $provider = User::factory()->role(UserRole::Artisan)->withProfile()->create([
+            'is_visible' => false,
+            'activation_requested_at' => null,
+        ]);
+        $token = $this->tokenFor($provider);
+
+        $this->api($token)->postJson('/api/v1/auth/activation')
+            ->assertForbidden()
+            ->assertJsonPath('code', 'account_not_visible');
     }
 
     public function test_email_must_be_unique_case_insensitively(): void

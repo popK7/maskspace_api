@@ -13,6 +13,23 @@ class BeautyRequestTest extends TestCase
 {
     use InteractsWithAuth, InteractsWithShop, RefreshDatabase;
 
+    public function test_client_can_open_multiple_beauty_requests(): void
+    {
+        $client = $this->tokenFor($this->makeClient());
+        $payload = ['specialty' => 'coiffeur', 'mode' => 'salon'];
+
+        $firstId = $this->api($client)->postJson('/api/v1/beauty-requests', $payload)
+            ->assertCreated()->assertJsonPath('data.status', 'searching')->json('data.id');
+        $secondId = $this->api($client)->postJson('/api/v1/beauty-requests', $payload)
+            ->assertCreated()->assertJsonPath('data.status', 'searching')->json('data.id');
+
+        $this->assertNotSame($firstId, $secondId);
+        $this->api($client)->getJson("/api/v1/beauty-requests/{$firstId}")
+            ->assertOk()->assertJsonPath('data.status', 'searching');
+        $this->api($client)->getJson("/api/v1/beauty-requests/{$secondId}")
+            ->assertOk()->assertJsonPath('data.status', 'searching');
+    }
+
     public function test_pros_of_the_specialty_answer_and_the_client_chooses(): void
     {
         $client = $this->tokenFor($this->makeClient());

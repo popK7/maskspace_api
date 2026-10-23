@@ -5,14 +5,74 @@ namespace App\Http\Controllers\Api\V1\Ride;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\RideResource;
 use App\Models\Ride;
+use App\Models\RideOffer;
+use App\Enums\UserRole;
 use App\Services\Dispatch\RideService;
+use App\Services\Shop\LivreurStats;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /** Course vue par le passager (artisan, plus tard client). */
 class RideController extends Controller
 {
-    public function __construct(private readonly RideService $rides) {}
+    public function __construct(
+        private readonly RideService $rides,
+        private readonly LivreurStats $livreurStats,
+    ) {}
+
+    public function store(Request $request): RideResource
+    {
+        $data = $request->validate([
+            'pickup_address' => ['required', 'string', 'max:255'],
+            'pickup_latitude' => ['required', 'numeric', 'between:-90,90'],
+            'pickup_longitude' => ['required', 'numeric', 'between:-180,180'],
+            'dropoff_address' => ['required', 'string', 'max:255'],
+            'dropoff_latitude' => ['required', 'numeric', 'between:-90,90'],
+            'dropoff_longitude' => ['required', 'numeric', 'between:-180,180'],
+        ]);
+
+        return new RideResource($this->rides->request($request->user(), $data));
+    }
+
+    public function offers(Request $request, Ride $ride): \Illuminate\Http\JsonResponse
+    {
+        $this->authorizePassenger($request, $ride);
+
+        $offers = RideOffer::with('driver.profile')
+            ->where('ride_id', $ride->id)
+            ->where('status', 'pending')
+            ->orderBy('price_cents')
+            ->get()
+            ->map(function (RideOffer $offer) {
+                $driver = $offer->driver;
+                $rating = $driver->role === UserRole::Livreur
+                    ? $this->livreurStats->rating($driver)
+                    : ['avg' => null, 'count' => 0];
+
+                return [
+                    'id' => $offer->id,
+                    'driver_id' => $driver->id,
+                    'driver_name' => $driver->name,
+                    'vehicle' => $driver->profile?->vehicle_model,
+                    'price_cents' => $offer->price_cents,
+                    'eta_minutes' => $offer->eta_minutes,
+                    'distance_to_pickup_km' => $offer->distance_to_pickup_km,
+                    'rating' => $rating['avg'],
+                    'rating_count' => $rating['count'],
+                    'created_at' => $offer->created_at?->toIso8601String(),
+                ];
+            })
+            ->values();
+
+        return response()->json(['data' => $offers]);
+    }
+
+    public function chooseOffer(Request $request, Ride $ride, RideOffer $offer): RideResource
+    {
+        $this->authorizePassenger($request, $ride);
+
+        return new RideResource($this->rides->chooseOffer($request->user(), $ride, $offer));
+    }
 
     public function show(Request $request, Ride $ride): RideResource
     {

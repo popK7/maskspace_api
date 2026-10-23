@@ -6,6 +6,7 @@ use App\Enums\RideStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'passenger_id', 'driver_id', 'offered_driver_id', 'job_id', 'transfer_id', 'status',
@@ -48,6 +49,11 @@ class Ride extends Model
     public function offeredDriver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'offered_driver_id');
+    }
+
+    public function offers(): HasMany
+    {
+        return $this->hasMany(RideOffer::class);
     }
 
     public function job(): BelongsTo

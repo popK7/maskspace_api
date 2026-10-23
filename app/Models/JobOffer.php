@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['job_id', 'artisan_id', 'status', 'eta_minutes', 'distance_km'])]
+#[Fillable(['job_id', 'artisan_id', 'status', 'eta_minutes', 'estimated_price_cents', 'distance_km'])]
 class JobOffer extends Model
 {
     protected function casts(): array
@@ -15,6 +15,7 @@ class JobOffer extends Model
         return [
             'status' => JobOfferStatus::class,
             'eta_minutes' => 'integer',
+            'estimated_price_cents' => 'integer',
             'distance_km' => 'float',
         ];
     }

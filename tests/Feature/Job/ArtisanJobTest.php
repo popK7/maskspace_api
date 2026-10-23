@@ -46,18 +46,86 @@ class ArtisanJobTest extends TestCase
         $this->api($token)->getJson('/api/v1/artisan/jobs/available')->assertOk()
             ->assertJsonCount(0, 'data')->assertJsonPath('meta.is_available', false);
 
-        $this->api($token)->postJson("/api/v1/artisan/jobs/{$job->id}/offer")
+        $this->api($token)->postJson("/api/v1/artisan/jobs/{$job->id}/offer", ['estimated_price_dh' => 150])
             ->assertStatus(409)->assertJsonPath('code', 'artisan_offline');
+    }
+
+    public function test_artisan_estimate_is_required_and_visible_to_the_client(): void
+    {
+        $client = $this->tokenFor($this->makeClient());
+        $artisan = $this->tokenFor($this->makeArtisan());
+        $job = $this->publishJob($client);
+
+        $this->api($artisan)->postJson("/api/v1/artisan/jobs/{$job->id}/offer")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('estimated_price_dh');
+        $this->api($artisan)->postJson("/api/v1/artisan/jobs/{$job->id}/offer", [
+            'estimated_price_dh' => 0,
+        ])->assertUnprocessable()->assertJsonValidationErrors('estimated_price_dh');
+
+        $offerId = $this->api($artisan)->postJson("/api/v1/artisan/jobs/{$job->id}/offer", [
+            'estimated_price_dh' => 275,
+        ])->assertCreated()
+            ->assertJsonPath('data.estimated_price_dh', 275)
+            ->json('data.id');
+
+        $this->api($client)->getJson("/api/v1/jobs/{$job->id}")
+            ->assertOk()
+            ->assertJsonPath('data.offers.0.estimated_price_dh', 275);
+        $this->api($client)->postJson("/api/v1/jobs/{$job->id}/choose", [
+            'offer_id' => $offerId,
+        ])->assertOk()
+            ->assertJsonPath('data.offers.0.estimated_price_dh', 275)
+            ->assertJsonPath('data.final_price_status', 'not_submitted');
+    }
+
+    public function test_artisan_only_sees_jobs_in_the_current_service_zone(): void
+    {
+        $client = $this->tokenFor($this->makeClient());
+        $artisan = $this->makeArtisan();
+        $token = $this->tokenFor($artisan);
+        $job = $this->publishJob($client);
+
+        $artisan->forceFill([
+            'latitude' => 34.0209,
+            'longitude' => -6.8416,
+            'location_updated_at' => now(),
+        ])->save();
+
+        $this->api($token)->getJson('/api/v1/artisan/jobs/available')->assertOk()
+            ->assertJsonCount(0, 'data');
+        $this->api($token)->postJson("/api/v1/artisan/jobs/{$job->id}/offer", ['estimated_price_dh' => 150])
+            ->assertStatus(409)->assertJsonPath('code', 'outside_service_area');
+
+        $artisan->forceFill([
+            'latitude' => 33.5896,
+            'longitude' => -7.6322,
+            'location_updated_at' => now()->subMinutes(5),
+        ])->save();
+        $this->api($token)->getJson('/api/v1/artisan/jobs/available')->assertOk()
+            ->assertJsonCount(0, 'data')
+            ->assertJsonPath('meta.location_required', true);
+
+        $this->assertSame('searching', $job->fresh()->status->value);
     }
 
     public function test_client_chooses_an_offer_then_artisan_goes_and_completes(): void
     {
-        [$job, $artisanToken] = $this->assignedJob();
+        [$job, $artisanToken, $clientToken] = $this->assignedJob();
 
         $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/en-route")->assertOk()
             ->assertJsonPath('data.status', 'en_route');
         $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/arrive")->assertOk()
             ->assertJsonPath('data.status', 'arrived');
+        $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/start")
+            ->assertStatus(409)->assertJsonPath('code', 'final_price_not_accepted');
+        $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/final-price", [
+            'final_price_dh' => 325,
+        ])->assertOk()
+            ->assertJsonPath('data.final_price_dh', 325)
+            ->assertJsonPath('data.final_price_status', 'pending');
+        $this->api($clientToken)->postJson("/api/v1/jobs/{$job->id}/accept-final-price")
+            ->assertOk()->assertJsonPath('data.final_price_status', 'accepted');
         $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/start")->assertOk()
             ->assertJsonPath('data.status', 'in_progress');
         $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/complete")->assertOk()
@@ -72,10 +140,13 @@ class ArtisanJobTest extends TestCase
         $client = $this->tokenFor($clientUser);
         $artisanUser = $this->makeArtisan();
         $artisan = $this->tokenFor($artisanUser);
-        $driver = $this->tokenFor($this->makeDriver());
+        $driverUser = $this->makeDriver();
+        $driver = $this->tokenFor($driverUser);
 
         $job = $this->publishJob($client);
-        $offerId = $this->api($artisan)->postJson("/api/v1/artisan/jobs/{$job->id}/offer")->assertCreated()->json('data.id');
+        $offerId = $this->api($artisan)->postJson("/api/v1/artisan/jobs/{$job->id}/offer", [
+            'estimated_price_dh' => 150,
+        ])->assertCreated()->json('data.id');
         $this->api($client)->postJson("/api/v1/jobs/{$job->id}/choose", ['offer_id' => $offerId])->assertOk();
 
         $this->api($artisan)->postJson("/api/v1/artisan/jobs/{$job->id}/ride", [
@@ -93,6 +164,20 @@ class ArtisanJobTest extends TestCase
         $rideId = Ride::where('job_id', $job->id)->value('id');
         $this->api($artisan)->getJson("/api/v1/rides/{$rideId}")
             ->assertOk()->assertJsonPath('data.status', 'searching');
+        $driverUser->forceFill([
+            'latitude' => 34.0209,
+            'longitude' => -6.8416,
+            'location_updated_at' => now(),
+        ])->save();
+        $this->api($driver)->getJson('/api/v1/driver/rides/available')->assertOk()
+            ->assertJsonCount(0, 'data');
+        $this->api($driver)->postJson("/api/v1/driver/rides/{$rideId}/accept")
+            ->assertStatus(409)->assertJsonPath('code', 'outside_service_area');
+        $driverUser->forceFill([
+            'latitude' => 33.5902,
+            'longitude' => -7.6269,
+            'location_updated_at' => now(),
+        ])->save();
         $this->api($driver)->getJson('/api/v1/driver/rides/available')->assertOk()
             ->assertJsonPath('data.0.id', $rideId);
 
@@ -110,18 +195,96 @@ class ArtisanJobTest extends TestCase
             ->assertJsonPath('data.status', 'arrived');
     }
 
-    public function test_client_can_cancel_while_searching_and_cannot_open_a_second_job(): void
+    public function test_client_receives_real_driver_price_offers_and_can_choose_one(): void
+    {
+        $client = $this->tokenFor($this->makeClient());
+        $driverUser = $this->makeDriver();
+        $driver = $this->tokenFor($driverUser);
+
+        $rideId = $this->api($client)->postJson('/api/v1/rides', [
+            'pickup_address' => 'Maârif, Casablanca',
+            'pickup_latitude' => 33.5896,
+            'pickup_longitude' => -7.6322,
+            'dropoff_address' => 'Gauthier, Casablanca',
+            'dropoff_latitude' => 33.5922,
+            'dropoff_longitude' => -7.6250,
+        ])->assertCreated()->json('data.id');
+
+        $this->api($driver)->postJson("/api/v1/driver/rides/{$rideId}/offer", [
+            'price_cents' => 4200,
+        ])->assertCreated()->assertJsonPath('data.price_cents', 4200);
+
+        $offerId = $this->api($client)->getJson("/api/v1/rides/{$rideId}/offers")
+            ->assertOk()
+            ->assertJsonPath('data.0.driver_name', $driverUser->name)
+            ->assertJsonPath('data.0.vehicle', 'Toyota Corolla')
+            ->assertJsonPath('data.0.price_cents', 4200)
+            ->json('data.0.id');
+
+        $this->api($client)->postJson("/api/v1/rides/{$rideId}/offers/{$offerId}/choose")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'accepted')
+            ->assertJsonPath('data.price_cents', 4200)
+            ->assertJsonPath('data.driver.id', $driverUser->id);
+    }
+
+    public function test_client_can_open_multiple_rides(): void
+    {
+        $client = $this->tokenFor($this->makeClient());
+        $payload = [
+            'pickup_address' => 'Maârif, Casablanca',
+            'pickup_latitude' => 33.5896,
+            'pickup_longitude' => -7.6322,
+            'dropoff_address' => 'Gauthier, Casablanca',
+            'dropoff_latitude' => 33.5922,
+            'dropoff_longitude' => -7.6250,
+        ];
+
+        $firstId = $this->api($client)->postJson('/api/v1/rides', $payload)
+            ->assertCreated()->assertJsonPath('data.status', 'searching')->json('data.id');
+        $secondId = $this->api($client)->postJson('/api/v1/rides', $payload)
+            ->assertCreated()->assertJsonPath('data.status', 'searching')->json('data.id');
+
+        $this->assertNotSame($firstId, $secondId);
+        $this->api($client)->getJson("/api/v1/rides/{$firstId}")
+            ->assertOk()->assertJsonPath('data.status', 'searching');
+        $this->api($client)->getJson("/api/v1/rides/{$secondId}")
+            ->assertOk()->assertJsonPath('data.status', 'searching');
+    }
+
+    public function test_client_can_open_multiple_jobs_and_cancel_each_independently(): void
     {
         $client = $this->tokenFor($this->makeClient());
         $job = $this->publishJob($client);
 
-        $this->api($client)->postJson('/api/v1/jobs', $this->jobPayload(['note' => 'autre']))
-            ->assertStatus(409)->assertJsonPath('code', 'job_already_active');
+        $secondJobId = $this->api($client)->postJson('/api/v1/jobs', $this->jobPayload(['note' => 'autre']))
+            ->assertCreated()
+            ->assertJsonPath('data.status', 'searching')
+            ->json('data.id');
+        $this->assertNotSame($job->id, $secondJobId);
+        $this->api($client)->getJson("/api/v1/jobs/{$job->id}")
+            ->assertOk()->assertJsonPath('data.status', 'searching');
+        $this->api($client)->getJson("/api/v1/jobs/{$secondJobId}")
+            ->assertOk()->assertJsonPath('data.status', 'searching');
 
         $this->api($client)->postJson("/api/v1/jobs/{$job->id}/cancel")->assertOk()
             ->assertJsonPath('data.status', 'cancelled');
+        $this->api($client)->getJson("/api/v1/jobs/{$secondJobId}")
+            ->assertOk()->assertJsonPath('data.status', 'searching');
+    }
 
-        $this->api($client)->postJson('/api/v1/jobs', $this->jobPayload())->assertCreated();
+    public function test_client_can_cancel_a_job_after_work_has_started(): void
+    {
+        [$job, $artisanToken, $clientToken] = $this->assignedJob();
+        $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/arrive")->assertOk();
+        $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/final-price", [
+            'final_price_dh' => 250,
+        ])->assertOk();
+        $this->api($clientToken)->postJson("/api/v1/jobs/{$job->id}/accept-final-price")->assertOk();
+        $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/start")->assertOk();
+
+        $this->api($clientToken)->postJson("/api/v1/jobs/{$job->id}/cancel")
+            ->assertOk()->assertJsonPath('data.status', 'cancelled');
     }
 
     public function test_wrong_roles_are_forbidden(): void
@@ -141,6 +304,10 @@ class ArtisanJobTest extends TestCase
         [$job, $artisanToken, $clientToken] = $this->assignedJob();
         $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/en-route")->assertOk();
         $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/arrive")->assertOk();
+        $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/final-price", [
+            'final_price_dh' => 250,
+        ])->assertOk();
+        $this->api($clientToken)->postJson("/api/v1/jobs/{$job->id}/accept-final-price")->assertOk();
         $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/start")->assertOk();
         $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/complete")->assertOk();
 
@@ -167,7 +334,9 @@ class ArtisanJobTest extends TestCase
         $clientToken = $this->tokenFor($this->makeClient());
         $artisanToken = $this->tokenFor($this->makeArtisan());
         $job = $this->publishJob($clientToken);
-        $offerId = $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/offer")->assertCreated()->json('data.id');
+        $offerId = $this->api($artisanToken)->postJson("/api/v1/artisan/jobs/{$job->id}/offer", [
+            'estimated_price_dh' => 150,
+        ])->assertCreated()->json('data.id');
         $this->api($clientToken)->postJson("/api/v1/jobs/{$job->id}/choose", ['offer_id' => $offerId])->assertOk()
             ->assertJsonPath('data.status', 'assigned');
 

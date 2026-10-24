@@ -148,6 +148,28 @@ class RolesAndAccountTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('specialties.0');
     }
 
+    public function test_visible_legacy_account_can_complete_profile_without_changing_role_or_availability(): void
+    {
+        $artisan = User::factory()->role(UserRole::Artisan)->create([
+            'is_visible' => true,
+            'is_available' => true,
+            'profile_completed_at' => null,
+        ]);
+        $artisan->profile()->create(['specialties' => []]);
+
+        $this->api($this->tokenFor($artisan))->patchJson('/api/v1/me', [
+            'name' => 'Artisan Mis à jour',
+            'specialties' => ['plomberie', 'electricite'],
+        ])->assertOk()
+            ->assertJsonPath('data.role', 'artisan')
+            ->assertJsonPath('data.is_visible', true)
+            ->assertJsonPath('data.is_available', true)
+            ->assertJsonPath('data.profile_completed', true)
+            ->assertJsonPath('data.profile.specialties', ['plomberie', 'electricite']);
+
+        $this->assertNotNull($artisan->fresh()->profile_completed_at);
+    }
+
     // ---- Changement de mot de passe ----
 
     public function test_change_password_keeps_current_session_and_closes_others(): void

@@ -37,7 +37,7 @@ class AuthService
                 'email' => $data['email'],
                 'phone' => $data['phone'],
                 'password' => $data['password'],
-                'role' => UserRole::Client,
+                'role' => UserRole::from($data['role'] ?? UserRole::Client->value),
                 'status' => UserStatus::Active,
                 'is_available' => false,
                 'is_visible' => false,
@@ -233,7 +233,7 @@ class AuthService
         ])->save();
     }
 
-    private function syncShop(User $user, array $data): void
+    public function syncShop(User $user, array $data): void
     {
         $kind = ShopKind::forRole($user->role);
         $shop = $user->shop;

@@ -20,7 +20,7 @@ En dev, les e-mails (codes à 6 chiffres) sont écrits dans `storage/logs/larave
 
 | Méthode     | Route                      | Auth                  | Description                                                      |
 | ----------- | -------------------------- | --------------------- | ---------------------------------------------------------------- |
-| POST        | `/auth/register`           | –                     | Inscription (201) — champs selon le rôle                         |
+| POST        | `/auth/register`           | –                     | Inscription (201) — `role` choisi avant la création du compte   |
 | POST        | `/auth/login`              | –                     | Connexion                                                        |
 | POST        | `/auth/refresh`            | –                     | Rotation du refresh token                                        |
 | POST        | `/auth/forgot-password`    | –                     | Envoie un code (202, réponse identique si l'e-mail n'existe pas) |
@@ -38,7 +38,7 @@ En dev, les e-mails (codes à 6 chiffres) sont écrits dans `storage/logs/larave
 
 Les champs de profil requis sont enregistrés après la création du compte via `POST /me/profile` :
 
-Le compte se crée d'abord avec téléphone, e-mail et mot de passe. `/me` expose `profile_completion` (0–100) et `profile_completed`. À 100 %, le profil devient visible sans validation administrative, mais reste hors ligne jusqu'à ce que le prestataire active sa disponibilité. L'API refuse le passage en ligne avant 100 %; la modération peut toujours masquer ou suspendre un compte.
+Le rôle (`client`, `artisan`, `driver`, etc.) est choisi dans l'application avant l'envoi de l'inscription et transmis dans `POST /auth/register`. Sans `role`, l'API conserve `client` par défaut pour les anciennes versions. Le nom et les champs propres au rôle sont complétés ensuite via `POST /me/profile`. `/me` expose `profile_completion` (0–100) et `profile_completed`. À 100 %, le profil prestataire devient visible sans validation administrative, mais reste hors ligne jusqu'à ce que la personne active sa disponibilité. L'API refuse le passage en ligne avant 100 %; la modération peut toujours masquer ou suspendre un compte.
 
 | `role`              | Champs supplémentaires obligatoires                                                                                                                      |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -43,6 +43,7 @@ trait InteractsWithAuth
     protected function signupPayload(array $overrides = []): array
     {
         return [
+            'role' => 'client',
             'email' => 'signup@example.com',
             'phone' => '+212 6 12 34 56 78',
             'password' => 'Password123',

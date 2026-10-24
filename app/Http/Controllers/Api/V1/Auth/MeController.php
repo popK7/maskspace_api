@@ -41,6 +41,20 @@ class MeController extends Controller
             if ($profileData !== []) {
                 $user->profile()->updateOrCreate([], $profileData);
             }
+
+            $user->refresh()->load(['profile', 'shop']);
+            if ($user->role->requiresShopName() && filled($user->profile?->shop_name)) {
+                $this->auth->syncShop($user, [
+                    'shop_name' => $user->profile->shop_name,
+                    'specialties' => $user->profile->specialties ?? [],
+                ]);
+            }
+            if ($user->is_visible && $user->profile_completed_at === null) {
+                $user->forceFill(['profile_completed_at' => now()]);
+                if ($user->profileCompletionPercent() === 100) {
+                    $user->save();
+                }
+            }
         });
 
         return new UserResource($user->fresh('profile'));

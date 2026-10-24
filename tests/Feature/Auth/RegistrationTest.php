@@ -28,12 +28,13 @@ class RegistrationTest extends TestCase
         Notification::fake();
 
         $response = $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'role' => $role->value,
             'email' => $role->value.'@example.com',
         ]));
 
         $response->assertCreated()
             ->assertHeader('Cache-Control', 'no-store, private')
-            ->assertJsonPath('user.role', 'client')
+            ->assertJsonPath('user.role', $role->value)
             ->assertJsonPath('user.status', 'active')
             ->assertJsonPath('user.is_visible', false)
             ->assertJsonPath('user.is_available', false)
@@ -77,8 +78,11 @@ class RegistrationTest extends TestCase
     public function test_role_specific_profile_is_persisted(): void
     {
         $driver = $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'role' => UserRole::Driver->value,
             'email' => 'driver-profile@example.com',
-        ]))->assertCreated()->json('tokens.access_token');
+        ]))->assertCreated()
+            ->assertJsonPath('user.role', UserRole::Driver->value)
+            ->json('tokens.access_token');
         $this->api($driver)->postJson('/api/v1/me/profile', $this->registrationPayload(UserRole::Driver, [
             'email' => 'driver-profile@example.com',
         ]))->assertOk()
@@ -86,8 +90,11 @@ class RegistrationTest extends TestCase
             ->assertJsonPath('data.profile.vehicle_plate', 'A 12345');
 
         $restaurant = $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'role' => UserRole::Restaurant->value,
             'email' => 'restaurant-profile@example.com',
-        ]))->assertCreated()->json('tokens.access_token');
+        ]))->assertCreated()
+            ->assertJsonPath('user.role', UserRole::Restaurant->value)
+            ->json('tokens.access_token');
         $this->api($restaurant)->postJson('/api/v1/me/profile', $this->registrationPayload(UserRole::Restaurant, [
             'email' => 'restaurant-profile@example.com',
         ]))->assertOk()
@@ -106,6 +113,16 @@ class RegistrationTest extends TestCase
             ->assertJsonValidationErrors('role');
 
         $this->assertSame(UserRole::Client, User::where('email', 'not-admin@example.com')->firstOrFail()->role);
+    }
+
+    public function test_registration_rejects_non_self_registrable_roles(): void
+    {
+        $this->api()->postJson('/api/v1/auth/register', $this->signupPayload([
+            'email' => 'not-admin@example.com',
+            'role' => UserRole::Admin->value,
+        ]))->assertUnprocessable()->assertJsonValidationErrors('role');
+
+        $this->assertDatabaseMissing('users', ['email' => 'not-admin@example.com']);
     }
 
     public function test_status_and_verification_cannot_be_mass_assigned(): void

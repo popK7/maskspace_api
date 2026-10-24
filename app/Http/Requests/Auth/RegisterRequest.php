@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Enums\UserRole;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -22,10 +23,11 @@ class RegisterRequest extends FormRequest
         ]);
     }
 
-    /** Inscription minimale : le profil (rôle, nom, spécialités) se complète ensuite. */
+    /** Le rôle est choisi avant l'inscription; le reste du profil se complète ensuite. */
     public function rules(): array
     {
         return [
+            'role' => ['sometimes', 'string', Rule::in(UserRole::selfRegistrableValues())],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')],
             'phone' => ['required', 'string', 'regex:/^\+?[0-9\s().-]{6,20}$/'],
             'password' => ['required', 'string', 'confirmed', Password::defaults()],

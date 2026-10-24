@@ -23,7 +23,7 @@ class RegisterRequest extends FormRequest
         ]);
     }
 
-    /** Le rôle est choisi avant l'inscription; le reste du profil se complète ensuite. */
+    /** Le rôle peut être attribué au moment de la complétion du profil après l'inscription. */
     public function rules(): array
     {
         return [

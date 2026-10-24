@@ -22,6 +22,31 @@ class RegistrationTest extends TestCase
         return array_map(fn (UserRole $r) => [$r], UserRole::selfRegistrable());
     }
 
+    public function test_role_can_be_chosen_when_completing_the_profile_after_registration(): void
+    {
+        $payload = $this->signupPayload([
+            'email' => 'role-after-signup@example.com',
+        ]);
+        unset($payload['role']);
+
+        $response = $this->api()->postJson('/api/v1/auth/register', $payload)
+            ->assertCreated()
+            ->assertJsonPath('user.role', UserRole::Client->value)
+            ->assertJsonPath('user.is_visible', false)
+            ->assertJsonPath('user.profile_completed', false);
+        $token = $response->json('tokens.access_token');
+
+        $this->api($token)->postJson(
+            '/api/v1/me/profile',
+            $this->registrationPayload(UserRole::Demarcheur, [
+                'email' => 'role-after-signup@example.com',
+            ]),
+        )->assertOk()
+            ->assertJsonPath('data.role', UserRole::Demarcheur->value)
+            ->assertJsonPath('data.profile_completed', true)
+            ->assertJsonPath('data.is_visible', true);
+    }
+
     #[DataProvider('selfRegistrableRoles')]
     public function test_each_role_can_register(UserRole $role): void
     {

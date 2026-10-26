@@ -31,6 +31,7 @@ class UserResource extends JsonResource
                 'vehicle_model' => $profile->vehicle_model,
                 'vehicle_plate' => $profile->vehicle_plate,
                 'specialties' => $profile->specialties ?? [],
+                'housing_zones' => $profile->housing_zones ?? [],
             ] : null,
             'created_at' => $this->created_at?->toIso8601String(),
         ];

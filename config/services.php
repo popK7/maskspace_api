@@ -35,6 +35,17 @@ return [
         ))),
     ],
 
+    'firebase' => [
+        'credentials' => env('FIREBASE_CREDENTIALS')
+            ? base_path(env('FIREBASE_CREDENTIALS'))
+            : null,
+    ],
+
+    'geocoding' => [
+        'search_url' => env('GEOCODING_SEARCH_URL', 'https://nominatim.openstreetmap.org/search'),
+        'user_agent' => env('GEOCODING_USER_AGENT', 'MakSpace/1.0'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\V1\Housing;
 
 use App\Enums\HousingKind;
-use App\Enums\HousingZone;
 use App\Enums\RentalBilling;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\HousingRequestResource;
@@ -22,7 +21,11 @@ class HousingRequestController extends Controller
     {
         $data = $request->validate([
             'kind' => ['required', Rule::enum(HousingKind::class)],
-            'zone' => ['required', Rule::enum(HousingZone::class)],
+            'zone' => ['required', 'string', 'max:40'],
+            'zone_name' => ['nullable', 'string', 'max:150'],
+            'zone_city' => ['nullable', 'string', 'max:150'],
+            'zone_latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'zone_longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'billing' => ['nullable', Rule::enum(RentalBilling::class)],
             'budget_cents' => ['nullable', 'integer', 'min:1000', 'max:50000000'],
             'guests' => ['nullable', 'integer', 'min:1', 'max:20'],

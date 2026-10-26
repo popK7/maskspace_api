@@ -11,7 +11,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 class ShopCatalog
 {
     /**
-     * @param  array{q?: string, category?: string, open_now?: bool, lat?: float, lng?: float, radius_km?: float, sort?: string, per_page?: int, page?: int}  $f
+     * @param  array{q?: string, kind?: string, category?: string, city?: string, open_now?: bool, lat?: float, lng?: float, radius_km?: float, sort?: string, per_page?: int, page?: int}  $f
      */
     public function search(array $f): LengthAwarePaginator
     {
@@ -26,6 +26,10 @@ class ShopCatalog
             ->whereHas('owner', fn ($q) => $q->where('is_visible', true))
             ->with('featuredDish.images')
             ->when($f['kind'] ?? null, fn ($q, $kind) => $q->where('kind', $kind))
+            ->when($f['city'] ?? null, fn ($q, $city) => $q->whereRaw(
+                'LOWER(city) = ?',
+                [mb_strtolower(trim($city))],
+            ))
             ->when($f['q'] ?? null, function ($q, $term) {
                 $like = '%'.addcslashes($term, '%_\\').'%';
                 $q->where(fn ($q) => $q->where('name', 'like', $like)

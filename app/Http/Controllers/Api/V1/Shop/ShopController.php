@@ -23,6 +23,7 @@ class ShopController extends Controller
         $filters = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
             'kind' => ['nullable', Rule::enum(ShopKind::class)],
+            'city' => ['nullable', 'string', 'max:100'],
             // Rayon (boutique) ou cuisine (restaurant).
             'category' => ['nullable', Rule::in(ShopKind::allShopCategories())],
             'open_now' => ['nullable', 'boolean'],

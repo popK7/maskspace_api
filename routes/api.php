@@ -34,6 +34,8 @@ use App\Http\Controllers\Api\V1\Merchant\ProductController as MerchantProductCon
 use App\Http\Controllers\Api\V1\Merchant\ReviewController as MerchantReviewController;
 use App\Http\Controllers\Api\V1\Merchant\ShopController as MerchantShopController;
 use App\Http\Controllers\Api\V1\Merchant\StatsController as MerchantStatsController;
+use App\Http\Controllers\Api\V1\PlaceSearchController;
+use App\Http\Controllers\Api\V1\PushDeviceController;
 use App\Http\Controllers\Api\V1\Ride\RideController;
 use App\Http\Controllers\Api\V1\Shop\FavoriteController;
 use App\Http\Controllers\Api\V1\Shop\OrderController;
@@ -73,6 +75,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
     });
 
     // ---- Catalogue public (consultation sans compte) ----
+    Route::get('places/search', [PlaceSearchController::class, 'search'])->middleware('throttle:geocoding');
     Route::get('shops', [ShopController::class, 'index']);
     Route::get('shops/{shop}', [ShopController::class, 'show'])->whereNumber('shop');
     Route::get('shops/{shop}/products', [ShopController::class, 'products'])->whereNumber('shop');
@@ -88,6 +91,8 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
     Route::middleware(['auth:api', 'not-suspended'])->group(function () {
         Route::get('me', [MeController::class, 'show']);
         Route::post('me/profile', [MeController::class, 'complete'])->middleware('throttle:20,1');
+        Route::post('me/push-devices', [PushDeviceController::class, 'store'])->middleware('throttle:30,1');
+        Route::delete('me/push-devices', [PushDeviceController::class, 'destroy'])->middleware('throttle:30,1');
     });
 
     // ---- Routes authentifiees ----

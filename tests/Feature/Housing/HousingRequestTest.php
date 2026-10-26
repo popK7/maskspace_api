@@ -85,6 +85,44 @@ class HousingRequestTest extends TestCase
         ])->assertStatus(403)->assertJsonPath('code', 'zone_not_covered');
     }
 
+    public function test_dynamic_neighborhood_requests_match_the_selected_real_place_id(): void
+    {
+        $client = $this->tokenFor($this->makeClient());
+        $zone = [
+            'id' => 'osm-node-7841',
+            'name' => 'Guéliz',
+            'city' => 'Marrakech',
+            'latitude' => 31.63,
+            'longitude' => -8.01,
+        ];
+        $nearby = User::factory()->role(UserRole::Demarcheur)->withProfile([
+            'housing_zones' => [$zone],
+        ])->create(['is_available' => true]);
+        $wrongZone = User::factory()->role(UserRole::Demarcheur)->withProfile([
+            'housing_zones' => [[...$zone, 'id' => 'osm-node-9999']],
+        ])->create(['is_available' => true]);
+        $nearbyToken = $this->tokenFor($nearby);
+        $wrongZoneToken = $this->tokenFor($wrongZone);
+
+        $id = $this->api($client)->postJson('/api/v1/housing-requests', [
+            'kind' => 'appartement',
+            'zone' => $zone['id'],
+            'zone_name' => $zone['name'],
+            'zone_city' => $zone['city'],
+            'zone_latitude' => $zone['latitude'],
+            'zone_longitude' => $zone['longitude'],
+        ])->assertCreated()
+            ->assertJsonPath('data.zone', $zone['id'])
+            ->assertJsonPath('data.zone_details.name', 'Guéliz')
+            ->assertJsonPath('data.zone_details.city', 'Marrakech')
+            ->json('data.id');
+
+        $this->api($nearbyToken)->getJson('/api/v1/demarcheur/requests/available')
+            ->assertOk()->assertJsonCount(1, 'data');
+        $this->api($wrongZoneToken)->getJson('/api/v1/demarcheur/requests/available')
+            ->assertOk()->assertJsonCount(0, 'data');
+    }
+
     protected function makeDemarcheur(array $zones): User
     {
         return User::factory()->role(UserRole::Demarcheur)->withProfile([

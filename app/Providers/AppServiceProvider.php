@@ -32,6 +32,7 @@ class AppServiceProvider extends ServiceProvider
 
         // Limite globale de l'API : par utilisateur authentifie, sinon par IP.
         RateLimiter::for('api', fn (Request $r) => Limit::perMinute(120)->by($r->user()?->id ?: $r->ip()));
+        RateLimiter::for('geocoding', fn (Request $r) => Limit::perMinute(30)->by($r->ip()));
 
         // Anti brute-force : par (e-mail + IP) et par IP seule.
         RateLimiter::for('login', fn (Request $r) => [

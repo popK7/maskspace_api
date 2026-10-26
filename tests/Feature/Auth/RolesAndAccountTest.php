@@ -122,6 +122,28 @@ class RolesAndAccountTest extends TestCase
             ->assertJsonPath('data.profile.specialties', ['senegalaise', 'camerounaise']);
     }
 
+    public function test_demarcheur_can_save_and_reload_real_housing_zones(): void
+    {
+        $user = User::factory()->role(UserRole::Demarcheur)->withProfile()->create();
+        $zones = [[
+            'id' => 'osm-relation-456',
+            'name' => 'Guéliz',
+            'city' => 'Marrakech',
+            'latitude' => 31.63,
+            'longitude' => -8.01,
+        ]];
+
+        $this->api($this->tokenFor($user))->patchJson('/api/v1/me', [
+            'housing_zones' => $zones,
+        ])->assertOk()
+            ->assertJsonPath('data.profile.housing_zones.0.id', 'osm-relation-456')
+            ->assertJsonPath('data.profile.housing_zones.0.name', 'Guéliz')
+            ->assertJsonPath('data.profile.housing_zones.0.city', 'Marrakech')
+            ->assertJsonPath('data.profile_completion', 100);
+
+        $this->assertSame($zones, $user->fresh()->profile->housing_zones);
+    }
+
     public function test_update_me_cannot_change_role_status_email_or_password(): void
     {
         $user = User::factory()->create();

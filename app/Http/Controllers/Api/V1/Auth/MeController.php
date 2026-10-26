@@ -36,7 +36,7 @@ class MeController extends Controller
 
             $profileData = array_intersect_key(
                 $data,
-                array_flip(['shop_name', 'vehicle_model', 'vehicle_plate', 'specialties']),
+                array_flip(['shop_name', 'vehicle_model', 'vehicle_plate', 'specialties', 'housing_zones']),
             );
             if ($profileData !== []) {
                 $user->profile()->updateOrCreate([], $profileData);

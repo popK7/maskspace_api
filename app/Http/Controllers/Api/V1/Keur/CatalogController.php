@@ -22,6 +22,7 @@ class CatalogController extends Controller
             'kind' => ['nullable', Rule::enum(LodgingKind::class)],
             'billing' => ['nullable', Rule::enum(RentalBilling::class)],
             'guests' => ['nullable', 'integer', 'min:1', 'max:20'],
+            'city' => ['nullable', 'string', 'max:80'],
             'lat' => ['nullable', 'numeric', 'between:-90,90', 'required_with:lng'],
             'lng' => ['nullable', 'numeric', 'between:-180,180', 'required_with:lat'],
             'per_page' => ['nullable', 'integer', 'between:1,50'],
@@ -31,6 +32,10 @@ class CatalogController extends Controller
             ->where('is_active', true)
             ->whereHas('host', fn ($q) => $q->where('is_visible', true))
             ->whereHas('photos')
+            ->when($f['city'] ?? null, fn ($q, $city) => $q->whereRaw(
+                'LOWER(city) = ?',
+                [mb_strtolower(trim($city))],
+            ))
             ->when($f['kind'] ?? null, fn ($q, $k) => $q->where('kind', $k))
             ->when($f['billing'] ?? null, fn ($q, $b) => $q->where('billing', $b))
             ->when($f['guests'] ?? null, fn ($q, $g) => $q->where('guests', '>=', $g))

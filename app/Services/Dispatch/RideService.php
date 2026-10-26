@@ -14,12 +14,17 @@ use App\Models\MoneyTransfer;
 use App\Models\Ride;
 use App\Models\RideOffer;
 use App\Models\User;
+use App\Services\Notifications\PushNotificationService;
 use App\Support\Geo;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class RideService
 {
-    public function __construct(private readonly LocationPing $ping) {}
+    public function __construct(
+        private readonly LocationPing $ping,
+        private readonly PushNotificationService $notifications,
+    ) {}
 
     public function request(User $passenger, array $data): Ride
     {
@@ -30,7 +35,7 @@ class RideService
 
         $offer = $this->resolveOffer($passenger, $data['driver_id'] ?? null);
 
-        return Ride::create([
+        $ride = Ride::create([
             'passenger_id' => $passenger->id,
             'job_id' => $data['job_id'] ?? null,
             'transfer_id' => $data['transfer_id'] ?? null,
@@ -47,6 +52,33 @@ class RideService
             'offered_driver_id' => $offer['driver_id'],
             'offer_expires_at' => $offer['expires_at'],
         ]);
+
+        $recipients = $offer['driver_id'] !== null
+            ? User::whereKey($offer['driver_id'])->get()
+            : User::query()
+                ->where('role', UserRole::Driver)
+                ->where('status', UserStatus::Active)
+                ->where('is_visible', true)
+                ->where('is_available', true)
+                ->get()
+                ->filter(fn (User $driver) => Geo::inServiceArea(
+                    $driver,
+                    $ride->pickup_latitude,
+                    $ride->pickup_longitude,
+                ));
+
+        foreach ($recipients as $driver) {
+            $this->notifications->sendToUser(
+                $driver,
+                'Nouvelle demande de transport',
+                $offer['driver_id'] !== null
+                    ? 'Un client vous propose une course.'
+                    : 'Une course est disponible près de vous.',
+                ['type' => 'ride_request', 'ride_id' => $ride->id],
+            );
+        }
+
+        return $ride;
     }
 
     public function offerPrice(User $driver, Ride $ride, int $priceCents): RideOffer
@@ -62,7 +94,7 @@ class RideService
             throw new ApiException('Activez le partage de position avant de proposer un prix.', 409, 'location_required');
         }
 
-        return DB::transaction(function () use ($driver, $ride, $priceCents) {
+        $offer = DB::transaction(function () use ($driver, $ride, $priceCents) {
             $ride = Ride::whereKey($ride->id)->lockForUpdate()->firstOrFail();
             if ($ride->status !== RideStatus::Searching || $ride->job_id !== null || $ride->transfer_id !== null) {
                 throw new ApiException('Cette course n’accepte plus de propositions.', 409, 'ride_not_searching');
@@ -91,11 +123,20 @@ class RideService
                 ],
             );
         });
+
+        $this->notifications->sendToUser(
+            $ride->passenger,
+            'Nouvelle proposition de course',
+            "{$driver->name} vous a envoyé une proposition.",
+            ['type' => 'ride_offer', 'ride_id' => $ride->id, 'offer_id' => $offer->id],
+        );
+
+        return $offer;
     }
 
     public function chooseOffer(User $passenger, Ride $ride, RideOffer $offer): Ride
     {
-        return DB::transaction(function () use ($passenger, $ride, $offer) {
+        $updatedRide = DB::transaction(function () use ($passenger, $ride, $offer) {
             $ride = Ride::whereKey($ride->id)->lockForUpdate()->firstOrFail();
             if ($ride->passenger_id !== $passenger->id) {
                 throw new ApiException('Course introuvable.', 404, 'ride_not_found');
@@ -134,6 +175,15 @@ class RideService
 
             return $ride->fresh(['passenger', 'driver.profile', 'offers']);
         });
+
+        $this->notifications->sendToUser(
+            $updatedRide->driver,
+            'Votre proposition a été retenue',
+            'Le client a choisi votre proposition de course.',
+            ['type' => 'ride_assigned', 'ride_id' => $updatedRide->id],
+        );
+
+        return $updatedRide;
     }
 
     /** Recible une course encore en recherche : un habituel, ou tout le monde. */
@@ -159,7 +209,7 @@ class RideService
     {
         $this->assertDriverReady($driver);
 
-        return DB::transaction(function () use ($driver, $ride) {
+        $updatedRide = DB::transaction(function () use ($driver, $ride) {
             $ride = Ride::whereKey($ride->id)->lockForUpdate()->firstOrFail();
             if ($ride->status !== RideStatus::Searching) {
                 throw new ApiException('Cette course n’est plus disponible.', 409, 'ride_not_searching');
@@ -185,6 +235,15 @@ class RideService
 
             return $ride->fresh(['passenger', 'driver.profile', 'job']);
         });
+
+        $this->notifications->sendToUser(
+            $updatedRide->passenger,
+            'Transporteur trouvé',
+            "{$driver->name} a accepté votre course.",
+            ['type' => 'ride_assigned', 'ride_id' => $updatedRide->id],
+        );
+
+        return $updatedRide;
     }
 
     public function pickup(User $driver, Ride $ride): Ride
@@ -195,6 +254,12 @@ class RideService
         }
 
         $ride->forceFill(['status' => RideStatus::InProgress, 'picked_up_at' => now()])->save();
+        $this->notifications->sendToUser(
+            $ride->passenger,
+            'Course démarrée',
+            'Votre transporteur a démarré la course.',
+            ['type' => 'ride_status', 'ride_id' => $ride->id, 'status' => RideStatus::InProgress->value],
+        );
 
         if ($ride->job_id) {
             $job = Job::find($ride->job_id);
@@ -222,6 +287,12 @@ class RideService
 
         $ride->forceFill(['status' => RideStatus::Completed, 'completed_at' => now()])->save();
         $this->ping->forget($driver->id);
+        $this->notifications->sendToUser(
+            $ride->passenger,
+            'Course terminée',
+            'Votre course est terminée.',
+            ['type' => 'ride_status', 'ride_id' => $ride->id, 'status' => RideStatus::Completed->value],
+        );
 
         if ($ride->job_id) {
             $job = Job::find($ride->job_id);
@@ -345,7 +416,7 @@ class RideService
         ];
     }
 
-    /** @return array{driver_id: int|null, expires_at: \Illuminate\Support\Carbon|null} */
+    /** @return array{driver_id: int|null, expires_at: Carbon|null} */
     private function resolveOffer(User $passenger, mixed $driverId): array
     {
         if ($driverId === null || $driverId === '') {

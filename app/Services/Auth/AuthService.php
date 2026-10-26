@@ -204,6 +204,7 @@ class AuthService
                 'vehicle_model' => $data['vehicle_model'] ?? null,
                 'vehicle_plate' => $data['vehicle_plate'] ?? null,
                 'specialties' => $data['specialties'] ?? null,
+                'housing_zones' => $data['housing_zones'] ?? null,
             ]);
 
             $this->syncShop($user->fresh(), $data);

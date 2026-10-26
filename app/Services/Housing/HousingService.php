@@ -20,6 +20,10 @@ class HousingService
             'client_id' => $client->id,
             'kind' => $data['kind'],
             'zone' => $data['zone'],
+            'zone_name' => $data['zone_name'] ?? $this->legacyZoneLabel($data['zone']),
+            'zone_city' => $data['zone_city'] ?? null,
+            'zone_latitude' => $data['zone_latitude'] ?? null,
+            'zone_longitude' => $data['zone_longitude'] ?? null,
             'billing' => $data['billing'] ?? RentalBilling::Night->value,
             'budget_cents' => $data['budget_cents'] ?? null,
             'guests' => $data['guests'] ?? 1,
@@ -125,7 +129,12 @@ class HousingService
     {
         $demarcheur->loadMissing('profile');
 
-        return array_values($demarcheur->profile?->specialties ?? []);
+        $legacyZones = $demarcheur->profile?->specialties ?? [];
+        $currentZones = collect($demarcheur->profile?->housing_zones ?? [])
+            ->pluck('id')
+            ->all();
+
+        return array_values(array_unique(array_merge($legacyZones, $currentZones)));
     }
 
     private function assertCovers(User $demarcheur, HousingRequest $request): void
@@ -137,8 +146,25 @@ class HousingService
         if (! $demarcheur->is_available) {
             throw new ApiException('Passez en service pour répondre.', 409, 'demarcheur_offline');
         }
-        if (! in_array($request->zone->value, $this->zonesOf($demarcheur), true)) {
+        if (! in_array($request->zone, $this->zonesOf($demarcheur), true)) {
             throw new ApiException('Cette zone n’est pas dans votre secteur.', 403, 'zone_not_covered');
         }
+    }
+
+    private function legacyZoneLabel(string $zone): string
+    {
+        return match ($zone) {
+            'gironde' => 'La Gironde',
+            'maarif' => 'Maârif',
+            'gauthier' => 'Gauthier',
+            'racine' => 'Racine',
+            'anfa' => 'Anfa',
+            'ain_diab' => 'Aïn Diab',
+            'habous' => 'Habous',
+            'bourgogne' => 'Bourgogne',
+            'oasis' => 'Oasis',
+            'sidi_maarouf' => 'Sidi Maârouf',
+            default => $zone,
+        };
     }
 }

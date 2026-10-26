@@ -60,6 +60,11 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
         return $this->hasMany(RefreshToken::class);
     }
 
+    public function pushDevices(): HasMany
+    {
+        return $this->hasMany(PushDevice::class);
+    }
+
     public function clientJobs(): HasMany
     {
         return $this->hasMany(Job::class, 'client_id');
@@ -146,7 +151,10 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
         }
 
         if ($this->role->allowedSpecialties() !== null) {
-            $required[] = is_array($profile?->specialties) && $profile->specialties !== [];
+            $required[] = $this->role === UserRole::Demarcheur
+                ? (is_array($profile?->housing_zones) && $profile->housing_zones !== [])
+                    || (is_array($profile?->specialties) && $profile->specialties !== [])
+                : is_array($profile?->specialties) && $profile->specialties !== [];
         }
 
         return (int) round(count(array_filter($required)) / count($required) * 100);

@@ -4,8 +4,8 @@ namespace Tests\Feature\Keur;
 
 use App\Enums\BookingStatus;
 use App\Enums\UserRole;
-use App\Models\LodgingBooking;
 use App\Models\Lodging;
+use App\Models\LodgingBooking;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -31,6 +31,25 @@ class LodgingBookingTest extends TestCase
             ->assertJsonCount(1, 'data.0.photos');
 
         $this->api()->getJson("/api/v1/lodgings/{$hidden->id}")->assertNotFound();
+    }
+
+    public function test_catalog_filters_lodgings_by_city_before_pagination(): void
+    {
+        $host = $this->makeHost();
+        $this->makeLodging($host, ['title' => 'Casa stay']);
+        $marrakech = $this->makeLodging($host, [
+            'title' => 'Marrakech stay',
+            'city' => 'Marrakech',
+        ]);
+
+        $this->api()->getJson('/api/v1/lodgings?city=MARRAKECH')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $marrakech->id);
+
+        $this->api()->getJson('/api/v1/lodgings?city=Rabat')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
     }
 
     public function test_client_books_then_host_accepts_and_they_can_chat(): void

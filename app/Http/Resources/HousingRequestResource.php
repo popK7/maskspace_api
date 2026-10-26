@@ -21,7 +21,13 @@ class HousingRequestResource extends JsonResource
         return [
             'id' => $this->id,
             'kind' => $this->kind->value,
-            'zone' => $this->zone->value,
+            'zone' => $this->zone,
+            'zone_details' => [
+                'name' => $this->zone_name ?? $this->legacyZoneLabel(),
+                'city' => $this->zone_city,
+                'latitude' => $this->zone_latitude,
+                'longitude' => $this->zone_longitude,
+            ],
             'billing' => $this->billing?->value ?? 'night',
             'budget_cents' => $this->budget_cents,
             'guests' => $this->guests,
@@ -49,5 +55,22 @@ class HousingRequestResource extends JsonResource
             ]),
             'created_at' => $this->created_at?->toIso8601String(),
         ];
+    }
+
+    private function legacyZoneLabel(): string
+    {
+        return match ($this->zone) {
+            'gironde' => 'La Gironde',
+            'maarif' => 'Maârif',
+            'gauthier' => 'Gauthier',
+            'racine' => 'Racine',
+            'anfa' => 'Anfa',
+            'ain_diab' => 'Aïn Diab',
+            'habous' => 'Habous',
+            'bourgogne' => 'Bourgogne',
+            'oasis' => 'Oasis',
+            'sidi_maarouf' => 'Sidi Maârouf',
+            default => $this->zone,
+        };
     }
 }

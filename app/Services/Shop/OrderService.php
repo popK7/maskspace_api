@@ -4,6 +4,7 @@ namespace App\Services\Shop;
 
 use App\Enums\FulfillmentType;
 use App\Enums\OrderStatus;
+use App\Enums\UserRole;
 use App\Exceptions\ApiException;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -13,7 +14,7 @@ use App\Models\Review;
 use App\Models\Shop;
 use App\Models\ShopCourier;
 use App\Models\User;
-use App\Enums\UserRole;
+use App\Services\Notifications\PushNotificationService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -45,7 +46,10 @@ class OrderService
         ],
     ];
 
-    public function __construct(private readonly OrderPricing $pricing) {}
+    public function __construct(
+        private readonly OrderPricing $pricing,
+        private readonly PushNotificationService $notifications,
+    ) {}
 
     // ------------------------------------------------------------------
     // Creation
@@ -53,7 +57,7 @@ class OrderService
 
     /**
      * @param  array<string, mixed>  $data  donnees validees (voir CreateOrderRequest)
-     * @return array{order: Order, created: bool}  `created=false` si la requete est un rejeu (meme Idempotency-Key)
+     * @return array{order: Order, created: bool} `created=false` si la requete est un rejeu (meme Idempotency-Key)
      */
     public function create(User $customer, array $data, ?string $idempotencyKey = null): array
     {
@@ -69,6 +73,21 @@ class OrderService
                 return ['order' => $existing, 'created' => false];
             }
             throw $e;
+        }
+
+        if ($created) {
+            $this->notifications->sendToUser(
+                $order->shop?->owner,
+                'Nouvelle commande',
+                "La commande {$order->number} vient d’être reçue.",
+                ['type' => 'order_created', 'order_id' => $order->id],
+            );
+            $this->notifications->sendToUser(
+                $customer,
+                'Commande envoyée',
+                "Votre commande {$order->number} a été transmise à la boutique.",
+                ['type' => 'order_status', 'order_id' => $order->id, 'status' => OrderStatus::Pending->value],
+            );
         }
 
         return ['order' => $order, 'created' => true];
@@ -148,7 +167,7 @@ class OrderService
      */
     public function transition(Order $order, OrderStatus $to, User $actor, array $context = []): Order
     {
-        return DB::transaction(function () use ($order, $to, $actor, $context) {
+        $updated = DB::transaction(function () use ($order, $to, $actor, $context) {
             // Relecture avec verrou : deux acteurs ne peuvent pas faire avancer la meme commande en meme temps.
             $order = Order::with('shop')->lockForUpdate()->findOrFail($order->id);
             $from = $order->status;
@@ -210,6 +229,40 @@ class OrderService
 
             return $order->load(['items', 'shop', 'histories']);
         });
+
+        $recipients = match ($this->actorKind($updated, $actor)) {
+            'customer' => [$updated->shop?->owner, $updated->livreur],
+            'shop' => [$updated->customer],
+            'livreur' => [$updated->customer, $updated->shop?->owner],
+        };
+        $statusLabel = match ($to) {
+            OrderStatus::Accepted => 'acceptée',
+            OrderStatus::Preparing => 'en préparation',
+            OrderStatus::Ready => 'prête',
+            OrderStatus::OutForDelivery => 'en cours de livraison',
+            OrderStatus::Delivered => 'livrée',
+            OrderStatus::Rejected => 'refusée',
+            OrderStatus::Cancelled => 'annulée',
+            default => $to->value,
+        };
+
+        foreach ($recipients as $recipient) {
+            $this->notifications->sendToUser(
+                $recipient,
+                'Mise à jour de commande',
+                "La commande {$updated->number} est {$statusLabel}.",
+                ['type' => 'order_status', 'order_id' => $updated->id, 'status' => $to->value],
+            );
+        }
+
+        if ($updated->isDelivery()
+            && $updated->livreur_id === null
+            && $to === OrderStatus::Preparing
+            && $this->actorKind($updated, $actor) === 'shop') {
+            $this->notifyAvailableCouriers($updated);
+        }
+
+        return $updated;
     }
 
     private function guardBusinessRules(Order $order, OrderStatus $from, OrderStatus $to, string $kind, User $actor, array $ctx): void
@@ -311,7 +364,21 @@ class OrderService
             throw new ApiException('Cette course n\'est plus disponible.', 409, 'delivery_unavailable');
         }
 
-        return $order->refresh()->load(['items', 'shop', 'histories']);
+        $claimed = $order->refresh()->load(['items', 'shop', 'histories', 'customer']);
+        $this->notifications->sendToUser(
+            $claimed->customer,
+            'Livreur trouvé',
+            "{$livreur->name} prend en charge votre commande {$claimed->number}.",
+            ['type' => 'delivery_assigned', 'order_id' => $claimed->id],
+        );
+        $this->notifications->sendToUser(
+            $claimed->shop?->owner,
+            'Livraison prise en charge',
+            "Un livreur a accepté la commande {$claimed->number}.",
+            ['type' => 'delivery_assigned', 'order_id' => $claimed->id],
+        );
+
+        return $claimed;
     }
 
     /** Statuts pendant lesquels la boutique peut (re)choisir son mode de recherche de livreur. */
@@ -323,7 +390,7 @@ class OrderService
      */
     public function offerToCourier(Order $order, User $owner, int $livreurId): Order
     {
-        return DB::transaction(function () use ($order, $owner, $livreurId) {
+        $offered = DB::transaction(function () use ($order, $owner, $livreurId) {
             $order = $this->lockForDispatch($order, $owner);
 
             $trusted = ShopCourier::where('shop_id', $order->shop_id)->where('livreur_id', $livreurId)->exists();
@@ -347,12 +414,21 @@ class OrderService
 
             return $order->load(['items', 'shop', 'histories', 'customer', 'livreur', 'offeredLivreur']);
         });
+
+        $this->notifications->sendToUser(
+            $offered->offeredLivreur,
+            'Nouvelle livraison proposée',
+            "La boutique {$offered->shop?->name} vous propose la commande {$offered->number}.",
+            ['type' => 'delivery_offer', 'order_id' => $offered->id],
+        );
+
+        return $offered;
     }
 
     /** La boutique lance la recherche ouverte : tous les livreurs de la plateforme voient la course. */
     public function openToAll(Order $order, User $owner): Order
     {
-        return DB::transaction(function () use ($order, $owner) {
+        $opened = DB::transaction(function () use ($order, $owner) {
             $order = $this->lockForDispatch($order, $owner);
 
             if ($order->offered_livreur_id !== null) {
@@ -362,12 +438,16 @@ class OrderService
 
             return $order->load(['items', 'shop', 'histories', 'customer', 'livreur', 'offeredLivreur']);
         });
+
+        $this->notifyAvailableCouriers($opened);
+
+        return $opened;
     }
 
     /** Le livreur sollicite decline l'offre : la course repasse en recherche ouverte. */
     public function declineOffer(Order $order, User $livreur): Order
     {
-        return DB::transaction(function () use ($order, $livreur) {
+        $declined = DB::transaction(function () use ($order, $livreur) {
             $order = Order::lockForUpdate()->findOrFail($order->id);
 
             if ($order->livreur_id !== null || $order->offered_livreur_id !== $livreur->id) {
@@ -379,6 +459,29 @@ class OrderService
 
             return $order->load(['items', 'shop']);
         });
+
+        $this->notifyAvailableCouriers($declined);
+
+        return $declined;
+    }
+
+    private function notifyAvailableCouriers(Order $order): void
+    {
+        if (! $order->isDelivery() || $order->livreur_id !== null) {
+            return;
+        }
+
+        User::query()
+            ->where('role', UserRole::Livreur)
+            ->where('status', 'active')
+            ->where('is_visible', true)
+            ->where('is_available', true)
+            ->each(fn (User $livreur) => $this->notifications->sendToUser(
+                $livreur,
+                'Livraison disponible',
+                "Une commande de {$order->shop?->name} attend un livreur.",
+                ['type' => 'delivery_available', 'order_id' => $order->id],
+            ));
     }
 
     private function lockForDispatch(Order $order, User $owner): Order

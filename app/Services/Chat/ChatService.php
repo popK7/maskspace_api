@@ -2,12 +2,12 @@
 
 namespace App\Services\Chat;
 
-use App\Enums\BookingStatus;
 use App\Enums\BeautyStatus;
+use App\Enums\BookingStatus;
 use App\Enums\ConsultationStatus;
-use App\Enums\HousingStatus;
 use App\Enums\ConversationChannel;
 use App\Enums\ConversationSubject;
+use App\Enums\HousingStatus;
 use App\Enums\JobStatus;
 use App\Enums\OrderStatus;
 use App\Enums\RideStatus;
@@ -24,11 +24,16 @@ use App\Models\MoneyTransfer;
 use App\Models\Order;
 use App\Models\Ride;
 use App\Models\User;
+use App\Services\Notifications\PushNotificationService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class ChatService
 {
+    public function __construct(
+        private readonly PushNotificationService $notifications,
+    ) {}
+
     /** @return Collection<int, Conversation> */
     public function list(User $user, ConversationSubject $type, int $subjectId): Collection
     {
@@ -77,7 +82,7 @@ class ChatService
             throw new ApiException('Le message ne peut pas être vide.', 422, 'empty_message');
         }
 
-        return DB::transaction(function () use ($conversation, $user, $body) {
+        $message = DB::transaction(function () use ($conversation, $user, $body) {
             $message = $conversation->messages()->create([
                 'sender_id' => $user->id,
                 'body' => $body,
@@ -86,6 +91,26 @@ class ChatService
 
             return $message->load('sender');
         });
+
+        $recipientIds = array_values(array_filter(
+            $this->participantIds($conversation->channel, $subject),
+            fn (int $id) => $id !== $user->id,
+        ));
+        $recipients = User::whereIn('id', $recipientIds)->get();
+        foreach ($recipients as $recipient) {
+            $this->notifications->sendToUser(
+                $recipient,
+                'Nouveau message',
+                "{$user->name} vous a envoyé un message.",
+                [
+                    'type' => 'chat_message',
+                    'conversation_id' => $conversation->id,
+                    'message_id' => $message->id,
+                ],
+            );
+        }
+
+        return $message;
     }
 
     /**

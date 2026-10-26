@@ -41,6 +41,26 @@ class CatalogTest extends TestCase
         $this->api()->getJson('/api/v1/shops?category=nope')->assertUnprocessable();
     }
 
+    public function test_catalog_can_be_restricted_to_a_city_for_shops_and_restaurants(): void
+    {
+        $this->makeMerchant(['name' => 'Casa shop', 'city' => 'Casablanca']);
+        $this->makeMerchant(['name' => 'Marrakech shop', 'city' => 'Marrakech']);
+        $this->makeRestaurant(['name' => 'Marrakech restaurant', 'city' => 'Marrakech']);
+
+        $this->api()->getJson('/api/v1/shops?city=MARRAKECH')
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+
+        $this->api()->getJson('/api/v1/shops?city=Marrakech&kind=boutique')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.name', 'Marrakech shop');
+
+        $this->api()->getJson('/api/v1/shops?city=Rabat')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
     public function test_geo_search_sorts_by_distance_and_applies_radius(): void
     {
         // Point de reference : centre de Casablanca (33.5731, -7.5898)

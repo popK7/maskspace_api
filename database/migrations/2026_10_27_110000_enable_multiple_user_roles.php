@@ -71,10 +71,6 @@ return new class extends Migration
     {
         Schema::dropIfExists('user_roles');
 
-        Schema::table('user_profiles', function (Blueprint $table) {
-            $table->dropUnique('user_profiles_user_id_role_unique');
-        });
-
         DB::table('user_profiles')
             ->whereNotExists(function ($query) {
                 $query->selectRaw('1')
@@ -84,9 +80,25 @@ return new class extends Migration
             })
             ->delete();
 
-        Schema::table('user_profiles', function (Blueprint $table) {
-            $table->dropColumn('role');
-            $table->unique('user_id');
-        });
+        if (! Schema::hasIndex('user_profiles', ['user_id'], 'unique')) {
+            Schema::table('user_profiles', function (Blueprint $table) {
+                $table->unique('user_id');
+            });
+        }
+
+        $userRoleUniqueIndex = collect(Schema::getIndexes('user_profiles'))
+            ->first(fn (array $index): bool => $index['unique'] && $index['columns'] === ['user_id', 'role']);
+
+        if ($userRoleUniqueIndex !== null) {
+            Schema::table('user_profiles', function (Blueprint $table) use ($userRoleUniqueIndex) {
+                $table->dropUnique($userRoleUniqueIndex['name']);
+            });
+        }
+
+        if (Schema::hasColumn('user_profiles', 'role')) {
+            Schema::table('user_profiles', function (Blueprint $table) {
+                $table->dropColumn('role');
+            });
+        }
     }
 };

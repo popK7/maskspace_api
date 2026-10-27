@@ -38,6 +38,16 @@ class RolesAndAccountTest extends TestCase
         $this->assertFalse(Schema::hasIndex('user_profiles', ['user_id'], 'unique'));
     }
 
+    public function test_shop_roles_migration_can_be_retried_without_dropping_foreign_key_indexes(): void
+    {
+        $migration = require database_path('migrations/2026_10_27_111000_allow_boutique_and_restaurant_per_account.php');
+
+        $migration->up();
+
+        $this->assertTrue(Schema::hasIndex('shops', ['owner_id', 'kind'], 'unique'));
+        $this->assertFalse(Schema::hasIndex('shops', ['owner_id'], 'unique'));
+    }
+
     // ---- Controle d'acces par role ----
 
     public function test_admin_routes_require_authentication(): void

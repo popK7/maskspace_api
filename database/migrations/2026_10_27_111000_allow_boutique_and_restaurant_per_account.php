@@ -8,17 +8,37 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
-            $table->dropUnique('shops_owner_id_unique');
-            $table->unique(['owner_id', 'kind']);
-        });
+        if (! Schema::hasIndex('shops', ['owner_id', 'kind'], 'unique')) {
+            Schema::table('shops', function (Blueprint $table) {
+                $table->unique(['owner_id', 'kind']);
+            });
+        }
+
+        $ownerUniqueIndex = collect(Schema::getIndexes('shops'))
+            ->first(fn (array $index): bool => $index['unique'] && $index['columns'] === ['owner_id']);
+
+        if ($ownerUniqueIndex !== null) {
+            Schema::table('shops', function (Blueprint $table) use ($ownerUniqueIndex) {
+                $table->dropUnique($ownerUniqueIndex['name']);
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
-            $table->dropUnique('shops_owner_id_kind_unique');
-            $table->unique('owner_id');
-        });
+        if (! Schema::hasIndex('shops', ['owner_id'], 'unique')) {
+            Schema::table('shops', function (Blueprint $table) {
+                $table->unique('owner_id');
+            });
+        }
+
+        $ownerKindUniqueIndex = collect(Schema::getIndexes('shops'))
+            ->first(fn (array $index): bool => $index['unique'] && $index['columns'] === ['owner_id', 'kind']);
+
+        if ($ownerKindUniqueIndex !== null) {
+            Schema::table('shops', function (Blueprint $table) use ($ownerKindUniqueIndex) {
+                $table->dropUnique($ownerKindUniqueIndex['name']);
+            });
+        }
     }
 };

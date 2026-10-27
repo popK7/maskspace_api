@@ -46,8 +46,16 @@ class RideResource extends JsonResource
                 'id' => $this->driver->id,
                 'name' => $this->driver->name,
                 'phone' => $revealed ? $this->driver->phone : null,
-                'vehicle' => $this->driver->profile?->vehicle_model,
-                'plate' => $revealed ? $this->driver->profile?->vehicle_plate : null,
+                'vehicle' => $this->driver->profileForRole(
+                    $this->driver->hasRole(\App\Enums\UserRole::Driver)
+                        ? \App\Enums\UserRole::Driver
+                        : \App\Enums\UserRole::Livreur,
+                )->first()?->vehicle_model,
+                'plate' => $revealed ? $this->driver->profileForRole(
+                    $this->driver->hasRole(\App\Enums\UserRole::Driver)
+                        ? \App\Enums\UserRole::Driver
+                        : \App\Enums\UserRole::Livreur,
+                )->first()?->vehicle_plate : null,
             ]),
             'offer' => $this->when(
                 $this->status->value === 'searching' && $viewer && $viewer->id === $this->passenger_id,

@@ -26,7 +26,10 @@ class RideController extends Controller
 
         $radius = (float) config('job.radius_km', 15);
 
-        $rows = Ride::with('passenger')
+        $rows = Ride::with([
+            'passenger',
+            'offers' => fn ($query) => $query->where('driver_id', $user->id),
+        ])
             ->where('status', RideStatus::Searching)
             ->where(function ($q) use ($user) {
                 $q->whereNull('offered_driver_id')
@@ -57,6 +60,12 @@ class RideController extends Controller
                     'pickup_longitude' => (float) $ride->pickup_longitude,
                     'distance_km' => $ride->distance_km,
                     'price_cents' => $ride->price_cents,
+                    'my_offer' => $ride->offers->first()
+                        ? [
+                            'status' => $ride->offers->first()->status,
+                            'price_cents' => $ride->offers->first()->price_cents,
+                        ]
+                        : null,
                     'eta_minutes' => $ride->eta_minutes,
                     'distance_to_pickup_km' => $km,
                     'reserved_for_me' => $reserved,
@@ -156,6 +165,70 @@ class RideController extends Controller
             'today_earnings_cents' => (int) $todayCents,
             'lifetime_rides' => $lifetime,
             'active_count' => $active,
+        ]]);
+    }
+
+    public function earnings(Request $request): JsonResponse
+    {
+        $period = $request->validate([
+            'period' => ['sometimes', 'in:day,week,month'],
+        ])['period'] ?? 'month';
+        $now = now();
+        [$from, $to] = match ($period) {
+            'day' => [$now->copy()->startOfDay(), $now->copy()->endOfDay()],
+            'week' => [$now->copy()->startOfWeek(), $now->copy()->endOfWeek()],
+            default => [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()],
+        };
+
+        $rides = Ride::with('passenger')
+            ->where('driver_id', $request->user()->id)
+            ->where('status', RideStatus::Completed)
+            ->whereBetween('completed_at', [$from, $to])
+            ->orderByDesc('completed_at')
+            ->get();
+
+        $bucketCount = match ($period) {
+            'day' => 6,
+            'week' => 7,
+            default => 5,
+        };
+        $labels = match ($period) {
+            'day' => ['00h', '04h', '08h', '12h', '16h', '20h'],
+            'week' => ['L', 'M', 'M', 'J', 'V', 'S', 'D'],
+            default => ['S1', 'S2', 'S3', 'S4', 'S5'],
+        };
+        $series = [];
+        foreach (range(0, $bucketCount - 1) as $index) {
+            $series[] = [
+                'label' => $labels[$index],
+                'rides_count' => 0,
+                'total_cents' => 0,
+            ];
+        }
+
+        foreach ($rides as $ride) {
+            $completedAt = $ride->completed_at;
+            $index = match ($period) {
+                'day' => intdiv((int) $completedAt->format('G'), 4),
+                'week' => (int) $completedAt->format('N') - 1,
+                default => min(4, intdiv((int) $completedAt->format('j') - 1, 7)),
+            };
+            $series[$index]['rides_count']++;
+            $series[$index]['total_cents'] += (int) $ride->price_cents;
+        }
+
+        return response()->json(['data' => [
+            'period' => [
+                'key' => $period,
+                'from' => $from->toDateString(),
+                'to' => $to->toDateString(),
+            ],
+            'rides_count' => $rides->count(),
+            'total_cents' => (int) $rides->sum('price_cents'),
+            'series' => $series,
+            'recent' => $rides->take(5)
+                ->map(fn (Ride $ride) => (new RideResource($ride))->toArray($request))
+                ->values(),
         ]]);
     }
 

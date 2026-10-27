@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Changeur;
 use App\Enums\JobOfferStatus;
 use App\Enums\TransferCurrency;
 use App\Enums\TransferStatus;
+use App\Enums\UserRole;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\RideResource;
@@ -33,7 +34,8 @@ class TransferController extends Controller
             return response()->json(['data' => [], 'meta' => ['is_available' => true, 'location_required' => true]]);
         }
 
-        $corridors = $user->profile?->specialties ?? [];
+        $profile = $user->profileForRole(UserRole::Changeur)->first();
+        $corridors = $profile?->specialties ?? [];
         $offered = TransferOffer::where('changeur_id', $user->id)
             ->where(function ($query) {
                 $query->where('status', '!=', JobOfferStatus::Pending)
@@ -47,13 +49,13 @@ class TransferController extends Controller
             ->whereIn('destination_country', $corridors ?: ['__none__'])
             ->whereNotIn('id', $offered)
             ->latest('id')->limit(50)->get()
-            ->map(function (MoneyTransfer $transfer) use ($user, $radius) {
+            ->map(function (MoneyTransfer $transfer) use ($user, $radius, $profile) {
                 $km = round(Geo::km($user->latitude, $user->longitude, $transfer->latitude, $transfer->longitude), 2);
                 if ($km > $radius) {
                     return null;
                 }
 
-                $savedQuote = $user->profile?->transfer_quotes[$transfer->destination_country][$transfer->currency->value] ?? null;
+                $savedQuote = $profile?->transfer_quotes[$transfer->destination_country][$transfer->currency->value] ?? null;
 
                 return [
                     'id' => $transfer->id,
@@ -84,8 +86,8 @@ class TransferController extends Controller
         $user = $request->user()->loadMissing('profile');
 
         return response()->json(['data' => [
-            'corridors' => $user->profile?->specialties ?? [],
-            'quotes' => $user->profile?->transfer_quotes ?? [],
+            'corridors' => $user->profileForRole(UserRole::Changeur)->first()?->specialties ?? [],
+            'quotes' => $user->profileForRole(UserRole::Changeur)->first()?->transfer_quotes ?? [],
             'source_currencies' => TransferCurrency::values(),
         ]]);
     }
@@ -93,7 +95,7 @@ class TransferController extends Controller
     public function updatePricing(Request $request): JsonResponse
     {
         $user = $request->user()->loadMissing('profile');
-        $profile = $user->profile;
+        $profile = $user->profileForRole(UserRole::Changeur)->first();
         $validator = Validator::make($request->all(), [
             'quotes' => ['required', 'array'],
             'quotes.*' => ['array'],

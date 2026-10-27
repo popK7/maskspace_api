@@ -214,6 +214,11 @@ class ArtisanJobTest extends TestCase
             'price_cents' => 4200,
         ])->assertCreated()->assertJsonPath('data.price_cents', 4200);
 
+        $this->api($driver)->getJson('/api/v1/driver/rides/available')
+            ->assertOk()
+            ->assertJsonPath('data.0.my_offer.status', 'pending')
+            ->assertJsonPath('data.0.my_offer.price_cents', 4200);
+
         $offerId = $this->api($client)->getJson("/api/v1/rides/{$rideId}/offers")
             ->assertOk()
             ->assertJsonPath('data.0.driver_name', $driverUser->name)

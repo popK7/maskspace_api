@@ -29,8 +29,8 @@ class UserController extends Controller
         ]);
 
         $users = User::query()
-            ->with('profile')
-            ->when($filters['role'] ?? null, fn ($q, $role) => $q->where('role', $role))
+            ->with(['profile', 'roles'])
+            ->when($filters['role'] ?? null, fn ($q, $role) => $q->forRole($role))
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->when($filters['visibility'] ?? null, function ($q, $visibility) {
                 if ($visibility === 'requested') {

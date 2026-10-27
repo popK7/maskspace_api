@@ -45,7 +45,9 @@ class RideController extends Controller
             ->get()
             ->map(function (RideOffer $offer) {
                 $driver = $offer->driver;
-                $rating = $driver->role === UserRole::Livreur
+                $isLivreur = $driver->hasRole(UserRole::Livreur)
+                    && ! $driver->hasRole(UserRole::Driver);
+                $rating = $isLivreur
                     ? $this->livreurStats->rating($driver)
                     : ['avg' => null, 'count' => 0];
 
@@ -53,7 +55,9 @@ class RideController extends Controller
                     'id' => $offer->id,
                     'driver_id' => $driver->id,
                     'driver_name' => $driver->name,
-                    'vehicle' => $driver->profile?->vehicle_model,
+                    'vehicle' => $driver->profileForRole(
+                        $isLivreur ? UserRole::Livreur : UserRole::Driver,
+                    )->first()?->vehicle_model,
                     'price_cents' => $offer->price_cents,
                     'eta_minutes' => $offer->eta_minutes,
                     'distance_to_pickup_km' => $offer->distance_to_pickup_km,

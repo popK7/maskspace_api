@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Artisan;
 
 use App\Enums\JobOfferStatus;
 use App\Enums\JobStatus;
+use App\Enums\UserRole;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\JobResource;
@@ -30,7 +31,7 @@ class JobController extends Controller
             return response()->json(['data' => [], 'meta' => ['is_available' => true, 'location_required' => true]]);
         }
 
-        $trades = $user->profile?->specialties ?? [];
+        $trades = $user->profileForRole(UserRole::Artisan)->first()?->specialties ?? [];
         $offered = JobOffer::where('artisan_id', $user->id)->pluck('job_id');
         $radius = (float) config('job.radius_km', 15);
 

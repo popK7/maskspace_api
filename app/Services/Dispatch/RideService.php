@@ -56,7 +56,7 @@ class RideService
         $recipients = $offer['driver_id'] !== null
             ? User::whereKey($offer['driver_id'])->get()
             : User::query()
-                ->where('role', UserRole::Driver)
+                ->forRole(UserRole::Driver)
                 ->where('status', UserStatus::Active)
                 ->where('is_visible', true)
                 ->where('is_available', true)
@@ -397,8 +397,12 @@ class RideService
                 'id' => $ride->driver->id,
                 'name' => $ride->driver->name,
                 'phone' => $ride->driver->phone,
-                'vehicle' => $ride->driver->profile?->vehicle_model,
-                'plate' => $ride->driver->profile?->vehicle_plate,
+                'vehicle' => $ride->driver->profileForRole(
+                    $ride->driver->hasRole(UserRole::Driver) ? UserRole::Driver : UserRole::Livreur,
+                )->first()?->vehicle_model,
+                'plate' => $ride->driver->profileForRole(
+                    $ride->driver->hasRole(UserRole::Driver) ? UserRole::Driver : UserRole::Livreur,
+                )->first()?->vehicle_plate,
             ] : null,
             'courier' => $driverLive,
             'pickup' => [
@@ -432,7 +436,7 @@ class RideService
             );
         }
 
-        $driver = User::where('role', UserRole::Driver)->where('status', UserStatus::Active)->find($driverId);
+        $driver = User::forRole(UserRole::Driver)->where('status', UserStatus::Active)->find($driverId);
         if (! $driver) {
             throw new ApiException('Transporteur introuvable.', 422, 'driver_not_found');
         }
@@ -458,7 +462,7 @@ class RideService
 
     private function assertDriverReady(User $driver): void
     {
-        if ($driver->role !== UserRole::Driver) {
+        if (! $driver->hasRole(UserRole::Driver)) {
             throw new ApiException('Compte transporteur requis.', 403, 'forbidden_role');
         }
         $driver->ensureVisible();

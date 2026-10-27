@@ -347,14 +347,14 @@ class JobService
 
     private function assertArtisanReady(User $artisan, string $trade): void
     {
-        if ($artisan->role !== UserRole::Artisan) {
+        if (! $artisan->hasRole(UserRole::Artisan)) {
             throw new ApiException('Compte artisan requis.', 403, 'forbidden_role');
         }
         $artisan->ensureVisible();
         if (! $artisan->is_available) {
             throw new ApiException('Passez en service pour recevoir des demandes.', 409, 'artisan_offline');
         }
-        $trades = $artisan->profile?->specialties ?? [];
+        $trades = $artisan->profileForRole(UserRole::Artisan)->first()?->specialties ?? [];
         if (! in_array($trade, $trades, true)) {
             throw new ApiException('Ce métier ne fait pas partie de vos spécialités.', 409, 'trade_mismatch');
         }

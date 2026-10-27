@@ -91,6 +91,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
     Route::middleware(['auth:api', 'not-suspended'])->group(function () {
         Route::get('me', [MeController::class, 'show']);
         Route::post('me/profile', [MeController::class, 'complete'])->middleware('throttle:20,1');
+        Route::patch('me/role', [MeController::class, 'switchRole'])->middleware('throttle:20,1');
         Route::post('me/push-devices', [PushDeviceController::class, 'store'])->middleware('throttle:30,1');
         Route::delete('me/push-devices', [PushDeviceController::class, 'destroy'])->middleware('throttle:30,1');
     });
@@ -275,6 +276,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::patch('availability', [DriverPresenceController::class, 'availability']);
             Route::post('location', [DriverPresenceController::class, 'location'])->middleware('throttle:30,1');
             Route::get('dashboard', [DriverRideController::class, 'dashboard']);
+            Route::get('earnings', [DriverRideController::class, 'earnings']);
             Route::get('rides/available', [DriverRideController::class, 'available']);
             Route::get('rides', [DriverRideController::class, 'index']);
             Route::get('rides/{ride}', [DriverRideController::class, 'show'])->whereNumber('ride');

@@ -121,12 +121,12 @@ class BeautyService
     {
         $pro->loadMissing('profile');
 
-        return array_values($pro->profile?->specialties ?? []);
+        return array_values($pro->profileForRole(UserRole::Beaute)->first()?->specialties ?? []);
     }
 
     private function assertCovers(User $pro, BeautyRequest $request): void
     {
-        if ($pro->role !== UserRole::Beaute) {
+        if (! $pro->hasRole(UserRole::Beaute)) {
             throw new ApiException('Compte Soins et beauté requis.', 403, 'forbidden_role');
         }
         $pro->ensureVisible();

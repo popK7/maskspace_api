@@ -106,7 +106,7 @@ class CourierTracker
                 'id' => $livreur->id,
                 'name' => $livreur->name,
                 'phone' => $livreur->phone,
-                'vehicle' => $livreur->profile?->vehicle_model,
+                'vehicle' => $livreur->profileForRole(\App\Enums\UserRole::Livreur)->first()?->vehicle_model,
                 'rating' => app(LivreurStats::class)->rating($livreur),
             ] : null,
             'courier' => $courier,

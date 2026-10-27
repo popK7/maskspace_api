@@ -122,6 +122,87 @@ class RolesAndAccountTest extends TestCase
             ->assertJsonPath('data.profile.specialties', ['senegalaise', 'camerounaise']);
     }
 
+    public function test_account_can_add_roles_and_switch_between_isolated_profiles(): void
+    {
+        $user = User::factory()->create();
+        $token = $this->tokenFor($user);
+
+        $this->api($token)->postJson('/api/v1/me/profile', [
+            'role' => 'client',
+            'name' => 'Client MakSpace',
+        ])->assertOk()->assertJsonPath('data.role', 'client');
+
+        $this->api($token)->postJson('/api/v1/me/profile', [
+            'role' => 'driver',
+            'name' => 'Client MakSpace',
+            'vehicle_model' => 'Toyota Corolla',
+            'vehicle_plate' => 'A 12345',
+        ])->assertOk()
+            ->assertJsonPath('data.role', 'client')
+            ->assertJsonPath('data.roles.0', 'client')
+            ->assertJsonPath('data.roles.1', 'driver');
+
+        $this->api($token)->patchJson('/api/v1/me/role', ['role' => 'driver'])
+            ->assertOk()
+            ->assertJsonPath('data.role', 'driver')
+            ->assertJsonPath('data.profile.vehicle_model', 'Toyota Corolla');
+
+        $this->api($token)->patchJson('/api/v1/me/role', ['role' => 'client'])
+            ->assertOk()
+            ->assertJsonPath('data.role', 'client')
+            ->assertJsonPath('data.profile.vehicle_model', null);
+    }
+
+    public function test_account_cannot_switch_to_a_role_without_a_completed_profile(): void
+    {
+        $user = User::factory()->create();
+
+        $this->api($this->tokenFor($user))->patchJson('/api/v1/me/role', ['role' => 'driver'])
+            ->assertForbidden()
+            ->assertJsonPath('code', 'role_not_enabled');
+    }
+
+    public function test_business_roles_keep_separate_profiles_and_shops(): void
+    {
+        $user = User::factory()->create();
+        $token = $this->tokenFor($user);
+
+        $this->api($token)->postJson('/api/v1/me/profile', [
+            'role' => 'client',
+            'name' => 'Compte MakSpace',
+        ])->assertOk();
+        $this->api($token)->postJson('/api/v1/me/profile', [
+            'role' => 'boutique',
+            'name' => 'Compte MakSpace',
+            'shop_name' => 'Boutique Awa',
+            'specialties' => ['epicerie'],
+        ])->assertOk();
+        $this->api($token)->postJson('/api/v1/me/profile', [
+            'role' => 'restaurant',
+            'name' => 'Compte MakSpace',
+            'shop_name' => 'Chez Awa',
+            'specialties' => ['ivoirienne'],
+        ])->assertOk();
+
+        $this->assertDatabaseHas('shops', [
+            'owner_id' => $user->id,
+            'kind' => 'boutique',
+            'name' => 'Boutique Awa',
+        ]);
+        $this->assertDatabaseHas('shops', [
+            'owner_id' => $user->id,
+            'kind' => 'restaurant',
+            'name' => 'Chez Awa',
+        ]);
+
+        $this->api($token)->patchJson('/api/v1/me/role', ['role' => 'boutique'])
+            ->assertOk()
+            ->assertJsonPath('data.profile.shop_name', 'Boutique Awa');
+        $this->api($token)->patchJson('/api/v1/me/role', ['role' => 'restaurant'])
+            ->assertOk()
+            ->assertJsonPath('data.profile.shop_name', 'Chez Awa');
+    }
+
     public function test_demarcheur_can_save_and_reload_real_housing_zones(): void
     {
         $user = User::factory()->role(UserRole::Demarcheur)->withProfile()->create();

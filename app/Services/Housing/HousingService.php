@@ -129,8 +129,9 @@ class HousingService
     {
         $demarcheur->loadMissing('profile');
 
-        $legacyZones = $demarcheur->profile?->specialties ?? [];
-        $currentZones = collect($demarcheur->profile?->housing_zones ?? [])
+        $profile = $demarcheur->profileForRole(UserRole::Demarcheur)->first();
+        $legacyZones = $profile?->specialties ?? [];
+        $currentZones = collect($profile?->housing_zones ?? [])
             ->pluck('id')
             ->all();
 
@@ -139,7 +140,7 @@ class HousingService
 
     private function assertCovers(User $demarcheur, HousingRequest $request): void
     {
-        if ($demarcheur->role !== UserRole::Demarcheur) {
+        if (! $demarcheur->hasRole(UserRole::Demarcheur)) {
             throw new ApiException('Compte démarcheur requis.', 403, 'forbidden_role');
         }
         $demarcheur->ensureVisible();

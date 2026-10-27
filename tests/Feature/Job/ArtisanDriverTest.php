@@ -4,6 +4,7 @@ namespace Tests\Feature\Job;
 
 use App\Models\ArtisanDriver;
 use App\Models\Ride;
+use App\Enums\RideStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\InteractsWithAuth;
 use Tests\Concerns\InteractsWithJob;
@@ -13,6 +14,72 @@ use Tests\TestCase;
 class ArtisanDriverTest extends TestCase
 {
     use InteractsWithAuth, InteractsWithJob, InteractsWithShop, RefreshDatabase;
+
+    public function test_driver_earnings_are_aggregated_from_completed_rides_for_selected_period(): void
+    {
+        $driver = $this->makeDriver();
+        $passenger = $this->makeClient();
+        $now = now()->startOfWeek()->addDays(2)->setTime(11, 0);
+        $this->travelTo($now);
+
+        Ride::create([
+            'passenger_id' => $passenger->id,
+            'driver_id' => $driver->id,
+            'status' => RideStatus::Completed,
+            'pickup_address' => 'Maarif, Casablanca',
+            'pickup_latitude' => 33.5896,
+            'pickup_longitude' => -7.6322,
+            'dropoff_address' => 'Anfa, Casablanca',
+            'dropoff_latitude' => 33.5902,
+            'dropoff_longitude' => -7.6269,
+            'distance_km' => 4.5,
+            'price_cents' => 4200,
+            'completed_at' => $now->copy()->setTime(10, 30),
+        ]);
+        Ride::create([
+            'passenger_id' => $passenger->id,
+            'driver_id' => $driver->id,
+            'status' => RideStatus::Completed,
+            'pickup_address' => 'Maarif, Casablanca',
+            'pickup_latitude' => 33.5896,
+            'pickup_longitude' => -7.6322,
+            'dropoff_address' => 'Anfa, Casablanca',
+            'dropoff_latitude' => 33.5902,
+            'dropoff_longitude' => -7.6269,
+            'distance_km' => 4.5,
+            'price_cents' => 3000,
+            'completed_at' => $now->copy()->subDay(),
+        ]);
+
+        $response = $this->api($this->tokenFor($driver))
+            ->getJson('/api/v1/driver/earnings?period=day')
+            ->assertOk()
+            ->assertJsonPath('data.period.key', 'day')
+            ->assertJsonPath('data.rides_count', 1)
+            ->assertJsonPath('data.total_cents', 4200)
+            ->assertJsonPath('data.series.2.label', '08h')
+            ->assertJsonPath('data.series.2.rides_count', 1)
+            ->assertJsonPath('data.series.2.total_cents', 4200)
+            ->assertJsonPath('data.recent.0.price_cents', 4200);
+
+        $this->assertCount(6, $response->json('data.series'));
+        $token = $this->tokenFor($driver);
+        $this->api($token)
+            ->getJson('/api/v1/driver/earnings?period=week')
+            ->assertOk()
+            ->assertJsonPath('data.rides_count', 2)
+            ->assertJsonPath('data.total_cents', 7200)
+            ->assertJsonCount(7, 'data.series');
+        $this->api($token)
+            ->getJson('/api/v1/driver/earnings?period=month')
+            ->assertOk()
+            ->assertJsonPath('data.rides_count', 2)
+            ->assertJsonPath('data.total_cents', 7200)
+            ->assertJsonCount(5, 'data.series');
+        $this->api($token)
+            ->getJson('/api/v1/driver/earnings?period=year')
+            ->assertUnprocessable();
+    }
 
     private function trust($artisan, $driver): void
     {

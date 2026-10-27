@@ -43,7 +43,7 @@ class AuthService
                 'is_visible' => false,
             ]);
             $user->save();
-            $user->profile()->create([]);
+            $user->profile()->create(['role' => $user->role->value]);
 
             return $user;
         });
@@ -110,7 +110,7 @@ class AuthService
                     'email_verified_at' => now(),
                 ]);
                 $created->save();
-                $created->profile()->create([]);
+                $created->profile()->create(['role' => $created->role->value]);
 
                 return $created->load('profile');
             });
@@ -181,25 +181,27 @@ class AuthService
         $user->markEmailAsVerified();
     }
 
-    /** Enregistre le rôle et les informations exigées par ce rôle. Réservé à un compte pas encore activé. */
+    /** Enregistre les informations obligatoires d’un rôle, sans modifier les autres espaces du compte. */
     public function completeProfile(User $user, array $data): User
     {
-        if ($user->is_visible) {
-            throw new ApiException('Le rôle se choisit avant d’être visible sur MakSpace.', 409, 'profile_locked');
+        $role = UserRole::from($data['role']);
+        if ($user->hasCompletedRoleProfile($role)) {
+            throw new ApiException('Cet espace existe déjà sur votre compte.', 409, 'role_already_enabled');
         }
 
-        return DB::transaction(function () use ($user, $data) {
-            $role = UserRole::from($data['role']);
+        return DB::transaction(function () use ($user, $data, $role) {
+            $isFirstCompletedRole = ! $user->hasCompletedRoleProfile($user->role);
+            $now = now();
             $user->forceFill([
                 'name' => $data['name'],
-                'role' => $role,
-                'profile_completed_at' => now(),
+                'role' => $isFirstCompletedRole ? $role : $user->role,
+                'profile_completed_at' => $isFirstCompletedRole ? $now : $user->profile_completed_at,
                 'is_available' => false,
                 'is_visible' => true,
                 'activation_requested_at' => null,
             ])->save();
 
-            $user->profile()->updateOrCreate([], [
+            $user->profileForRole($role)->updateOrCreate(['role' => $role->value], [
                 'shop_name' => $data['shop_name'] ?? null,
                 'vehicle_model' => $data['vehicle_model'] ?? null,
                 'vehicle_plate' => $data['vehicle_plate'] ?? null,
@@ -207,10 +209,41 @@ class AuthService
                 'housing_zones' => $data['housing_zones'] ?? null,
             ]);
 
-            $this->syncShop($user->fresh(), $data);
+            DB::table('user_roles')->updateOrInsert(
+                ['user_id' => $user->id, 'role' => $role->value],
+                [
+                    'is_visible' => true,
+                    'profile_completed_at' => $now,
+                    'updated_at' => $now,
+                    'created_at' => $now,
+                ],
+            );
 
-            return $user->fresh(['profile', 'shop']);
+            $freshUser = $user->fresh(['profile', 'shop']);
+            if ($role->requiresShopName()) {
+                $this->syncShopForRole($freshUser, $role, $data);
+            }
+
+            return $freshUser;
         });
+    }
+
+    public function switchRole(User $user, UserRole $role): User
+    {
+        if ($role !== UserRole::Client && ! $user->hasCompletedRoleProfile($role)) {
+            throw new ApiException(
+                'Complétez et validez le profil de cet espace avant d’y accéder.',
+                403,
+                'role_not_enabled',
+            );
+        }
+
+        $user->forceFill([
+            'role' => $role,
+            'is_available' => false,
+        ])->save();
+
+        return $user->fresh(['profile', 'shop']);
     }
 
     /** Compatibilité avec les anciennes versions : le profil complet suffit à être visible. */
@@ -236,8 +269,13 @@ class AuthService
 
     public function syncShop(User $user, array $data): void
     {
-        $kind = ShopKind::forRole($user->role);
-        $shop = $user->shop;
+        $this->syncShopForRole($user, $user->role, $data);
+    }
+
+    private function syncShopForRole(User $user, UserRole $role, array $data): void
+    {
+        $kind = ShopKind::forRole($role);
+        $shop = $user->shopForRole($role)->first();
 
         if ($kind === null) {
             $shop?->delete();
@@ -258,7 +296,7 @@ class AuthService
             return;
         }
 
-        $user->shop()->save(new Shop($attributes));
+        $user->shopForRole($role)->save(new Shop($attributes));
     }
 
     public function changePassword(User $user, string $newPassword, ?string $currentFamilyId): void

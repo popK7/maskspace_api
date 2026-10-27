@@ -19,7 +19,7 @@ class EnsureUserHasRole
         /** @var User|null $user */
         $user = $request->user();
 
-        if ($user === null || ! $user->hasRole(...$roles)) {
+        if ($user === null || ! $user->hasActiveRole(...$roles)) {
             throw ApiException::forbiddenRole();
         }
 

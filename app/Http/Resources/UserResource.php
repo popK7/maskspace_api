@@ -19,6 +19,13 @@ class UserResource extends JsonResource
             'email' => $this->email,
             'phone' => $this->phone,
             'role' => $this->role->value,
+            'roles' => array_values(array_unique([
+                'client',
+                ...$this->roles
+                    ->filter(fn ($membership) => $membership->profile_completed_at !== null)
+                    ->map(fn ($membership) => $membership->role->value)
+                    ->all(),
+            ])),
             'status' => $this->status->value,
             'email_verified' => $this->hasVerifiedEmail(),
             'profile_completed' => $this->hasCompletedProfile(),

@@ -201,12 +201,12 @@ class ConsultationService
     {
         $medecin->loadMissing('profile');
 
-        return array_values($medecin->profile?->specialties ?? []);
+        return array_values($medecin->profileForRole(UserRole::Medecin)->first()?->specialties ?? []);
     }
 
     private function assertCovers(User $medecin, Consultation $consultation): void
     {
-        if ($medecin->role !== UserRole::Medecin) {
+        if (! $medecin->hasRole(UserRole::Medecin)) {
             throw new ApiException('Compte médecin requis.', 403, 'forbidden_role');
         }
         $medecin->ensureVisible();

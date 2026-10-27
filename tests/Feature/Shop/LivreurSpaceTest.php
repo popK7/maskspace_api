@@ -122,6 +122,22 @@ class LivreurSpaceTest extends TestCase
         $this->assertSame(1, $res->json('data.daily.6.deliveries'));
     }
 
+    public function test_earnings_endpoint_returns_empty_period_for_livreur_without_deliveries(): void
+    {
+        $livreur = $this->makeLivreur();
+        $response = $this->api($this->tokenFor($livreur))
+            ->getJson('/api/v1/livreur/earnings?from='.now()->subDays(6)->toDateString().'&to='.now()->toDateString())
+            ->assertOk()
+            ->assertJsonPath('data.deliveries_count', 0)
+            ->assertJsonPath('data.earnings_cents', 0)
+            ->assertJsonPath('data.cash_collected_cents', 0)
+            ->assertJsonPath('data.average_cents', 0)
+            ->assertJsonPath('data.lifetime_deliveries', 0)
+            ->assertJsonCount(7, 'data.daily');
+
+        $this->assertSame(0, $response->json('data.daily.6.earnings_cents'));
+    }
+
     public function test_customer_can_rate_the_courier_and_it_feeds_the_courier_rating(): void
     {
         [, $m, $id, $c] = $this->preparingOrder();

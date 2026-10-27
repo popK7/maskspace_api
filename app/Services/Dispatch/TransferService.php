@@ -310,14 +310,14 @@ class TransferService
 
     private function assertChangeurReady(User $changeur, string $country): void
     {
-        if ($changeur->role !== UserRole::Changeur) {
+        if (! $changeur->hasRole(UserRole::Changeur)) {
             throw new ApiException('Compte de transfert d’argent requis.', 403, 'forbidden_role');
         }
         $changeur->ensureVisible();
         if (! $changeur->is_available) {
             throw new ApiException('Passez en service pour recevoir des demandes.', 409, 'changeur_offline');
         }
-        $corridors = $changeur->profile?->specialties ?? [];
+        $corridors = $changeur->profileForRole(UserRole::Changeur)->first()?->specialties ?? [];
         if (! in_array($country, $corridors, true)) {
             throw new ApiException('Ce pays ne fait pas partie de vos corridors.', 409, 'corridor_mismatch');
         }

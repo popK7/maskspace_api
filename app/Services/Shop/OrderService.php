@@ -75,6 +75,7 @@ class OrderService
             throw $e;
         }
 
+        $created = true;
         if ($created) {
             $this->notifications->sendToUser(
                 $order->shop?->owner,
@@ -472,7 +473,7 @@ class OrderService
         }
 
         User::query()
-            ->where('role', UserRole::Livreur)
+            ->forRole(UserRole::Livreur)
             ->where('status', 'active')
             ->where('is_visible', true)
             ->where('is_available', true)

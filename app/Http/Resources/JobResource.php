@@ -45,7 +45,7 @@ class JobResource extends JsonResource
                 'id' => $this->artisan->id,
                 'name' => $this->artisan->name,
                 'phone' => $asClient ? $this->artisan->phone : null,
-                'specialties' => $this->artisan->profile?->specialties ?? [],
+                'specialties' => $this->artisan->profileForRole(\App\Enums\UserRole::Artisan)->first()?->specialties ?? [],
             ]),
             'offers' => $this->when($asClient && $this->relationLoaded('offers'), fn () => $this->offers
                 ->filter(fn ($o) => $o->status === JobOfferStatus::Pending || $o->status === JobOfferStatus::Chosen)
@@ -60,7 +60,7 @@ class JobResource extends JsonResource
                     'artisan' => [
                         'id' => $o->artisan?->id,
                         'name' => $o->artisan?->name,
-                        'specialties' => $o->artisan?->profile?->specialties ?? [],
+                        'specialties' => $o->artisan?->profileForRole(\App\Enums\UserRole::Artisan)->first()?->specialties ?? [],
                     ],
                 ])->values()),
             'ride' => $this->when($this->relationLoaded('ride') && $this->ride, fn () => new RideResource($this->ride)),

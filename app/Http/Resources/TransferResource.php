@@ -45,7 +45,7 @@ class TransferResource extends JsonResource
                 'id' => $this->changeur->id,
                 'name' => $this->changeur->name,
                 'phone' => $asClient ? $this->changeur->phone : null,
-                'specialties' => $this->changeur->profile?->specialties ?? [],
+                'specialties' => $this->changeur->profileForRole(\App\Enums\UserRole::Changeur)->first()?->specialties ?? [],
             ]),
             'offers' => $this->when($asClient && $this->relationLoaded('offers'), fn () => $this->offers
                 ->filter(fn ($o) => $o->status === JobOfferStatus::Chosen
@@ -66,7 +66,7 @@ class TransferResource extends JsonResource
                     'changeur' => [
                         'id' => $o->changeur?->id,
                         'name' => $o->changeur?->name,
-                        'specialties' => $o->changeur?->profile?->specialties ?? [],
+                        'specialties' => $o->changeur?->profileForRole(\App\Enums\UserRole::Changeur)->first()?->specialties ?? [],
                     ],
                 ])->values()),
             'ride' => $this->when($this->relationLoaded('ride') && $this->ride, fn () => new RideResource($this->ride)),

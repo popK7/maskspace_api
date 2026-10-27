@@ -77,7 +77,7 @@ class CourierController extends Controller
         $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $q).'%';
         $digits = preg_replace('/\D+/', '', $q) ?? '';
 
-        $users = User::where('role', UserRole::Livreur)->where('status', UserStatus::Active)
+        $users = User::forRole(UserRole::Livreur)->where('status', UserStatus::Active)
             ->where(function ($w) use ($like, $q, $digits) {
                 $w->where('name', 'like', $like)->orWhere('email', $q);
                 if (strlen($digits) >= 6) {
@@ -102,7 +102,7 @@ class CourierController extends Controller
         $shop = ShopController::shopOf($request);
         $data = $request->validate(['livreur_id' => ['required', 'integer']]);
 
-        $livreur = User::where('role', UserRole::Livreur)->where('status', UserStatus::Active)->find($data['livreur_id']);
+        $livreur = User::forRole(UserRole::Livreur)->where('status', UserStatus::Active)->find($data['livreur_id']);
         if (! $livreur) {
             return response()->json([
                 'message' => 'Livreur introuvable.',
@@ -146,7 +146,7 @@ class CourierController extends Controller
             'id' => $u->id,
             'name' => $u->name,
             'phone' => $maskPhone ? $this->mask($u->phone) : $u->phone,
-            'vehicle' => $u->profile?->vehicle_model,
+            'vehicle' => $u->profileForRole(UserRole::Livreur)->first()?->vehicle_model,
             'is_available' => (bool) $u->is_available,
             'rating' => $this->ratings[$u->id] ?? ['avg' => 0.0, 'count' => 0],
             'saved' => $saved,

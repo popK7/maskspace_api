@@ -263,7 +263,7 @@ class LodgingService
 
     private function assertHost(User $host): void
     {
-        if ($host->role !== UserRole::Hote) {
+        if (! $host->hasRole(UserRole::Hote)) {
             throw new ApiException('Compte hôte requis.', 403, 'forbidden_role');
         }
     }

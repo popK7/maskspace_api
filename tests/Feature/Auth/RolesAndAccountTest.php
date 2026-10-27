@@ -34,6 +34,8 @@ class RolesAndAccountTest extends TestCase
 
         $this->assertTrue(Schema::hasColumn('user_profiles', 'role'));
         $this->assertTrue(Schema::hasTable('user_roles'));
+        $this->assertTrue(Schema::hasIndex('user_profiles', ['user_id', 'role'], 'unique'));
+        $this->assertFalse(Schema::hasIndex('user_profiles', ['user_id'], 'unique'));
     }
 
     // ---- Controle d'acces par role ----

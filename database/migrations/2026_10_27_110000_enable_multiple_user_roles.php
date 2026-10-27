@@ -15,6 +15,12 @@ return new class extends Migration
             });
         }
 
+        if (! Schema::hasIndex('user_profiles', ['user_id', 'role'], 'unique')) {
+            Schema::table('user_profiles', function (Blueprint $table) {
+                $table->unique(['user_id', 'role']);
+            });
+        }
+
         $userIdUniqueIndex = collect(Schema::getIndexes('user_profiles'))
             ->first(fn (array $index): bool => $index['unique'] && $index['columns'] === ['user_id']);
 
@@ -33,12 +39,6 @@ return new class extends Migration
                     ->whereNull('role')
                     ->update(['role' => $user->role]);
             });
-
-        if (! Schema::hasIndex('user_profiles', ['user_id', 'role'], 'unique')) {
-            Schema::table('user_profiles', function (Blueprint $table) {
-                $table->unique(['user_id', 'role']);
-            });
-        }
 
         if (! Schema::hasTable('user_roles')) {
             Schema::create('user_roles', function (Blueprint $table) {

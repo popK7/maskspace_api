@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Notifications\VerifyEmailCodeNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\InteractsWithAuth;
 use Tests\TestCase;
@@ -23,6 +24,16 @@ class RolesAndAccountTest extends TestCase
     private function tokenFor(User $user): string
     {
         return $this->loginAs($user)['tokens']['access_token'];
+    }
+
+    public function test_multiple_roles_migration_can_be_retried_when_profile_role_already_exists(): void
+    {
+        $migration = require database_path('migrations/2026_10_27_110000_enable_multiple_user_roles.php');
+
+        $migration->up();
+
+        $this->assertTrue(Schema::hasColumn('user_profiles', 'role'));
+        $this->assertTrue(Schema::hasTable('user_roles'));
     }
 
     // ---- Controle d'acces par role ----

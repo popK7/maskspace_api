@@ -8,11 +8,16 @@ API REST stateless d'authentification pour l'app Flutter `makspace_app`.
 composer install
 cp .env.example .env && php artisan key:generate && php artisan jwt:secret
 # créer la base MySQL `makspace`, puis :
-php artisan migrate --seed          # seed = comptes de démo (local uniquement, mot de passe 123456)
+php artisan migrate --seed          # comptes de démonstration
+php artisan db:seed --class=AdminTestSeeder # compte admin de test (local/testing uniquement)
 php artisan serve --host=0.0.0.0    # http://localhost:8000  (Android émulateur : http://10.0.2.2:8000)
 php artisan test
-php artisan makspace:create-admin admin@exemple.com   # créer un admin (non auto-inscriptible)
+php artisan makspace:create-admin admin@exemple.com   # créer un admin réel avec mot de passe interactif
 ```
+
+En local/testing, l'admin de test utilise par défaut `admin@makspace.test` / `MakSpaceAdmin2026!`.
+Définissez `ADMIN_TEST_EMAIL` et `ADMIN_TEST_PASSWORD` dans le `.env` local pour remplacer ces identifiants.
+Le seeder refuse de créer ce compte en production et n'élève pas un compte existant non administrateur.
 
 En dev, les e-mails (codes à 6 chiffres) sont écrits dans `storage/logs/laravel.log` (`MAIL_MAILER=log`).
 
@@ -33,6 +38,10 @@ En dev, les e-mails (codes à 6 chiffres) sont écrits dans `storage/logs/larave
 | PUT         | `/me/password`             | Bearer                | Changement de mot de passe                                       |
 | GET         | `/admin/users`             | Bearer + `role:admin` | Liste paginée/filtrable                                          |
 | PATCH       | `/admin/users/{id}/status` | Bearer + `role:admin` | Suspendre / réactiver                                            |
+
+Les formules sont enregistrées en base. La migration ajoute les offres initiales de 10, 15, 30 commandes et Sur mesure. Un administrateur peut en créer, modifier le nom, le quota et la description, ou désactiver une formule via `/admin/subscription-plans`. Le tarif reste « à confirmer au point de vente ». Chaque reçu conserve le nom et le quota de la formule au moment de sa demande ; les modifications ultérieures n’altèrent donc pas les reçus déjà émis.
+
+La liste admin des utilisateurs expose les comptes actifs, leur disponibilité de service, la dernière connexion, la dernière activité de l’application et la date du dernier service terminé par le professionnel. L’application envoie un heartbeat pendant qu’elle est au premier plan ; « connecté » signifie une activité observée dans les deux dernières minutes, pas une connexion WebSocket instantanée.
 
 ### Rôles et champs d'inscription
 

@@ -77,7 +77,7 @@ class CourierController extends Controller
         $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $q).'%';
         $digits = preg_replace('/\D+/', '', $q) ?? '';
 
-        $users = User::forRole(UserRole::Livreur)->where('status', UserStatus::Active)
+        $users = User::forActiveRole(UserRole::Livreur)->where('status', UserStatus::Active)
             ->where(function ($w) use ($like, $q, $digits) {
                 $w->where('name', 'like', $like)->orWhere('email', $q);
                 if (strlen($digits) >= 6) {
@@ -102,7 +102,9 @@ class CourierController extends Controller
         $shop = ShopController::shopOf($request);
         $data = $request->validate(['livreur_id' => ['required', 'integer']]);
 
-        $livreur = User::forRole(UserRole::Livreur)->where('status', UserStatus::Active)->find($data['livreur_id']);
+        $livreur = User::forActiveRole(UserRole::Livreur)
+            ->where('status', UserStatus::Active)
+            ->find($data['livreur_id']);
         if (! $livreur) {
             return response()->json([
                 'message' => 'Livreur introuvable.',

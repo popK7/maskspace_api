@@ -5,11 +5,14 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\AdminUserResource;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Services\Auth\TokenService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -24,6 +27,8 @@ class UserController extends Controller
             'role' => ['nullable', Rule::enum(UserRole::class)],
             'status' => ['nullable', Rule::enum(UserStatus::class)],
             'visibility' => ['nullable', 'string', Rule::in(['visible', 'hidden', 'requested'])],
+            'connection' => ['nullable', 'string', Rule::in(['connected', 'disconnected'])],
+            'availability' => ['nullable', 'boolean'],
             'search' => ['nullable', 'string', 'max:100'],
             'per_page' => ['nullable', 'integer', 'between:1,100'],
         ]);
@@ -32,6 +37,18 @@ class UserController extends Controller
             ->with(['profile', 'roles'])
             ->when($filters['role'] ?? null, fn ($q, $role) => $q->forRole($role))
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when(array_key_exists('availability', $filters), function ($q) use ($filters) {
+                $q->where('is_available', $filters['availability'])
+                    ->whereHas('roles', fn ($roles) => $roles
+                        ->whereNotIn('role', [UserRole::Client->value, UserRole::Admin->value])
+                        ->whereNotNull('profile_completed_at'));
+            })
+            ->when($filters['connection'] ?? null, function ($q, $connection) {
+                $cutoff = now()->subMinutes(2);
+                $connection === 'connected'
+                    ? $q->where('last_seen_at', '>=', $cutoff)
+                    : $q->where(fn ($query) => $query->whereNull('last_seen_at')->orWhere('last_seen_at', '<', $cutoff));
+            })
             ->when($filters['visibility'] ?? null, function ($q, $visibility) {
                 if ($visibility === 'requested') {
                     $q->where('is_visible', false)->whereNotNull('activation_requested_at');
@@ -49,7 +66,9 @@ class UserController extends Controller
             ->paginate($filters['per_page'] ?? 20)
             ->withQueryString();
 
-        return UserResource::collection($users);
+        $this->attachLastServiceTimestamps($users->getCollection());
+
+        return AdminUserResource::collection($users);
     }
 
     /** PATCH /admin/users/{user}/status — suspend / reactive un compte. */
@@ -93,5 +112,75 @@ class UserController extends Controller
         ])->save();
 
         return new UserResource($user->load('profile'));
+    }
+
+    /**
+     * Adds the latest completed service involving each account on the current page.
+     *
+     * @param  Collection<int, User>  $users
+     */
+    private function attachLastServiceTimestamps(Collection $users): void
+    {
+        $userIds = $users->modelKeys();
+        if ($userIds === []) {
+            return;
+        }
+
+        $sources = [
+            ['artisan_jobs', 'client_id', 'completed_at'],
+            ['artisan_jobs', 'artisan_id', 'completed_at'],
+            ['rides', 'passenger_id', 'completed_at'],
+            ['rides', 'driver_id', 'completed_at'],
+            ['orders', 'customer_id', 'delivered_at'],
+            ['orders', 'livreur_id', 'delivered_at'],
+            ['money_transfers', 'client_id', 'completed_at'],
+            ['money_transfers', 'changeur_id', 'completed_at'],
+            ['consultations', 'client_id', 'completed_at'],
+            ['consultations', 'medecin_id', 'completed_at'],
+            ['beauty_requests', 'client_id', 'completed_at'],
+            ['beauty_requests', 'pro_id', 'completed_at'],
+            ['housing_requests', 'client_id', 'completed_at'],
+            ['housing_requests', 'demarcheur_id', 'completed_at'],
+            ['lodging_bookings', 'client_id', 'completed_at'],
+            ['lodging_bookings', 'host_id', 'completed_at'],
+        ];
+        $latestByUser = [];
+
+        foreach ($sources as [$table, $userColumn, $timestampColumn]) {
+            $rows = DB::table($table)
+                ->select($userColumn.' as user_id')
+                ->selectRaw('MAX('.$timestampColumn.') as last_service_at')
+                ->whereIn($userColumn, $userIds)
+                ->whereNotNull($timestampColumn)
+                ->groupBy($userColumn)
+                ->get();
+
+            foreach ($rows as $row) {
+                $current = $latestByUser[$row->user_id] ?? null;
+                if ($current === null || $row->last_service_at > $current) {
+                    $latestByUser[$row->user_id] = $row->last_service_at;
+                }
+            }
+        }
+
+        $shopOrders = DB::table('orders')
+            ->join('shops', 'shops.id', '=', 'orders.shop_id')
+            ->select('shops.owner_id as user_id')
+            ->selectRaw('MAX(orders.delivered_at) as last_service_at')
+            ->whereIn('shops.owner_id', $userIds)
+            ->whereNotNull('orders.delivered_at')
+            ->groupBy('shops.owner_id')
+            ->get();
+        foreach ($shopOrders as $row) {
+            $current = $latestByUser[$row->user_id] ?? null;
+            if ($current === null || $row->last_service_at > $current) {
+                $latestByUser[$row->user_id] = $row->last_service_at;
+            }
+        }
+
+        $users->each(fn (User $user) => $user->setAttribute(
+            'last_service_at',
+            $latestByUser[$user->id] ?? null,
+        ));
     }
 }

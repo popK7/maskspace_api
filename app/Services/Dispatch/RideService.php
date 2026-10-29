@@ -56,7 +56,7 @@ class RideService
         $recipients = $offer['driver_id'] !== null
             ? User::whereKey($offer['driver_id'])->get()
             : User::query()
-                ->forRole(UserRole::Driver)
+                ->forActiveRole(UserRole::Driver)
                 ->where('status', UserStatus::Active)
                 ->where('is_visible', true)
                 ->where('is_available', true)
@@ -436,7 +436,9 @@ class RideService
             );
         }
 
-        $driver = User::forRole(UserRole::Driver)->where('status', UserStatus::Active)->find($driverId);
+        $driver = User::forActiveRole(UserRole::Driver)
+            ->where('status', UserStatus::Active)
+            ->find($driverId);
         if (! $driver) {
             throw new ApiException('Transporteur introuvable.', 422, 'driver_not_found');
         }

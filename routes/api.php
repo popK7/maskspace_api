@@ -1,6 +1,10 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\AppReleaseController;
+use App\Http\Controllers\Api\V1\Admin\DashboardController as AdminDashboardController;
+use App\Http\Controllers\Api\V1\Admin\SubscriptionController as AdminSubscriptionController;
+use App\Http\Controllers\Api\V1\Admin\SubscriptionIndexController as AdminSubscriptionIndexController;
+use App\Http\Controllers\Api\V1\Admin\SubscriptionPlanController as AdminSubscriptionPlanController;
 use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\V1\Artisan\DriverController as ArtisanDriverController;
 use App\Http\Controllers\Api\V1\Artisan\JobController as ArtisanJobController;
@@ -10,6 +14,7 @@ use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\Auth\EmailVerificationController;
 use App\Http\Controllers\Api\V1\Auth\MeController;
 use App\Http\Controllers\Api\V1\Auth\PasswordResetController;
+use App\Http\Controllers\Api\V1\Auth\PresenceController as AuthPresenceController;
 use App\Http\Controllers\Api\V1\Beaute\BeautyController as BeauteBeautyController;
 use App\Http\Controllers\Api\V1\Beauty\BeautyController;
 use App\Http\Controllers\Api\V1\Care\ConsultationController;
@@ -41,6 +46,7 @@ use App\Http\Controllers\Api\V1\Shop\FavoriteController;
 use App\Http\Controllers\Api\V1\Shop\OrderController;
 use App\Http\Controllers\Api\V1\Shop\ShopController;
 use App\Http\Controllers\Api\V1\Shop\TrackingController;
+use App\Http\Controllers\Api\V1\SubscriptionController;
 use App\Http\Controllers\Api\V1\Transfer\TransferController;
 use Illuminate\Support\Facades\Route;
 
@@ -90,10 +96,13 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
     // Profil et consultation du compte, y compris tant que l'activation n'est pas faite.
     Route::middleware(['auth:api', 'not-suspended'])->group(function () {
         Route::get('me', [MeController::class, 'show']);
+        Route::post('me/presence', AuthPresenceController::class)->middleware('throttle:2,1');
         Route::post('me/profile', [MeController::class, 'complete'])->middleware('throttle:20,1');
         Route::patch('me/role', [MeController::class, 'switchRole'])->middleware('throttle:20,1');
         Route::post('me/push-devices', [PushDeviceController::class, 'store'])->middleware('throttle:30,1');
         Route::delete('me/push-devices', [PushDeviceController::class, 'destroy'])->middleware('throttle:30,1');
+        Route::get('subscriptions', [SubscriptionController::class, 'show']);
+        Route::post('subscriptions', [SubscriptionController::class, 'store'])->middleware('throttle:10,1');
     });
 
     // ---- Routes authentifiees ----
@@ -234,6 +243,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::patch('availability', [ChangeurPresenceController::class, 'availability']);
             Route::post('location', [MedecinConsultationController::class, 'location'])->middleware('throttle:30,1');
             Route::get('dashboard', [MedecinConsultationController::class, 'dashboard']);
+            Route::get('earnings', [MedecinConsultationController::class, 'earnings']);
             Route::get('consultations/available', [MedecinConsultationController::class, 'available']);
             Route::get('consultations', [MedecinConsultationController::class, 'index']);
             Route::post('consultations/{consultation}/offer', [MedecinConsultationController::class, 'offer'])->whereNumber('consultation')->middleware('throttle:30,1');
@@ -356,7 +366,15 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
 
         // Reserve au role admin.
         Route::prefix('admin')->middleware('role:admin')->group(function () {
+            Route::get('dashboard', AdminDashboardController::class);
             Route::post('downloads/{platform}', [AppReleaseController::class, 'store'])->whereIn('platform', ['android', 'ios']);
+            Route::get('subscription-plans', [AdminSubscriptionPlanController::class, 'index']);
+            Route::post('subscription-plans', [AdminSubscriptionPlanController::class, 'store']);
+            Route::patch('subscription-plans/{subscriptionPlan}', [AdminSubscriptionPlanController::class, 'update'])
+                ->whereNumber('subscriptionPlan');
+            Route::get('subscriptions', AdminSubscriptionIndexController::class);
+            Route::post('subscriptions/activate', [AdminSubscriptionController::class, 'activate'])
+                ->middleware('throttle:20,1');
             Route::get('users', [AdminUserController::class, 'index']);
             Route::patch('users/{user}/status', [AdminUserController::class, 'updateStatus']);
             Route::patch('users/{user}/visibility', [AdminUserController::class, 'updateVisibility']);

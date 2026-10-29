@@ -62,7 +62,7 @@ class DriverController extends Controller
         $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $q).'%';
         $digits = preg_replace('/\D+/', '', $q) ?? '';
 
-        $users = User::forRole(UserRole::Driver)->where('status', UserStatus::Active)
+        $users = User::forActiveRole(UserRole::Driver)->where('status', UserStatus::Active)
             ->where(function ($w) use ($like, $q, $digits) {
                 $w->where('name', 'like', $like)->orWhere('email', $q);
                 if (strlen($digits) >= 6) {
@@ -86,7 +86,9 @@ class DriverController extends Controller
         $artisan = $request->user();
         $data = $request->validate(['driver_id' => ['required', 'integer']]);
 
-        $driver = User::forRole(UserRole::Driver)->where('status', UserStatus::Active)->find($data['driver_id']);
+        $driver = User::forActiveRole(UserRole::Driver)
+            ->where('status', UserStatus::Active)
+            ->find($data['driver_id']);
         if (! $driver) {
             return response()->json([
                 'message' => 'Transporteur introuvable.',

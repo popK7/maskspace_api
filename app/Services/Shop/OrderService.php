@@ -15,6 +15,7 @@ use App\Models\Shop;
 use App\Models\ShopCourier;
 use App\Models\User;
 use App\Services\Notifications\PushNotificationService;
+use App\Services\Subscriptions\SubscriptionService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -49,6 +50,7 @@ class OrderService
     public function __construct(
         private readonly OrderPricing $pricing,
         private readonly PushNotificationService $notifications,
+        private readonly SubscriptionService $subscriptions,
     ) {}
 
     // ------------------------------------------------------------------
@@ -97,6 +99,7 @@ class OrderService
     private function createInTransaction(User $customer, array $data, ?string $idempotencyKey): Order
     {
         $shop = Shop::where('is_active', true)->findOrFail($data['shop_id']);
+        $this->subscriptions->assertShopCanReceiveOrder($shop);
         $type = FulfillmentType::from($data['fulfillment_type']);
 
         $priced = $this->pricing->compute(
@@ -473,7 +476,7 @@ class OrderService
         }
 
         User::query()
-            ->forRole(UserRole::Livreur)
+            ->forActiveRole(UserRole::Livreur)
             ->where('status', 'active')
             ->where('is_visible', true)
             ->where('is_available', true)

@@ -6,6 +6,7 @@ use App\Enums\ShopKind;
 use App\Enums\UserRole;
 use App\Models\Product;
 use App\Models\Shop;
+use App\Models\SubscriptionReceipt;
 use App\Models\User;
 use Illuminate\Support\Str;
 
@@ -13,7 +14,7 @@ trait InteractsWithShop
 {
     protected function makeMerchant(array $shop = []): User
     {
-        $user = User::factory()->role(UserRole::Boutique)->create();
+        $user = User::factory()->role(UserRole::Boutique)->withProfile()->create();
         $user->shop()->save(new Shop(array_merge([
             'name' => 'Boutique '.Str::random(5),
             'categories' => ['epicerie'],
@@ -24,13 +25,14 @@ trait InteractsWithShop
             'min_order_cents' => 0,
             'prep_minutes' => 20,
         ], $shop)));
+        $this->activateDefaultSubscription($user);
 
         return $user->load('shop');
     }
 
     protected function makeRestaurant(array $shop = []): User
     {
-        $user = User::factory()->role(UserRole::Restaurant)->create();
+        $user = User::factory()->role(UserRole::Restaurant)->withProfile()->create();
         $user->shop()->save(new Shop(array_merge([
             'kind' => ShopKind::Restaurant,
             'name' => 'Resto '.Str::random(5),
@@ -42,8 +44,21 @@ trait InteractsWithShop
             'min_order_cents' => 0,
             'prep_minutes' => 25,
         ], $shop)));
+        $this->activateDefaultSubscription($user);
 
         return $user->load('shop');
+    }
+
+    private function activateDefaultSubscription(User $user): void
+    {
+        SubscriptionReceipt::create([
+            'user_id' => $user->id,
+            'receipt_number' => 'MS-TEST-'.str_pad((string) $user->id, 10, '0', STR_PAD_LEFT),
+            'plan' => 'contact',
+            'order_limit' => null,
+            'status' => 'active',
+            'activated_at' => now(),
+        ]);
     }
 
     protected function makeDish(Shop $shop, array $attrs = []): Product

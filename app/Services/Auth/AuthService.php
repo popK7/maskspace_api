@@ -75,7 +75,7 @@ class AuthService
             $user->forceFill(['password' => $password])->save();
         }
 
-        $user->forceFill(['last_login_at' => now()])->save();
+        $user->forceFill(['last_login_at' => now(), 'last_seen_at' => now()])->save();
 
         return [
             'user' => $user,
@@ -119,6 +119,7 @@ class AuthService
                 'google_id' => $user->google_id ?? $profile['sub'],
                 'email_verified_at' => $user->email_verified_at ?? now(),
                 'last_login_at' => now(),
+                'last_seen_at' => now(),
             ])->save();
         }
 

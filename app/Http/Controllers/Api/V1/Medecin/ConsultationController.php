@@ -32,6 +32,68 @@ class ConsultationController extends Controller
         ]]);
     }
 
+    public function earnings(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'days' => ['sometimes', 'integer', 'in:7,30,90'],
+        ]);
+        $days = (int) ($validated['days'] ?? 7);
+        $to = now()->endOfDay();
+        $from = now()->startOfDay()->subDays($days - 1);
+        $consultations = Consultation::query()
+            ->where('medecin_id', $request->user()->id)
+            ->where('status', ConsultationStatus::Completed)
+            ->where('price_status', 'accepted')
+            ->whereNotNull('price_dh')
+            ->whereBetween('completed_at', [$from, $to]);
+
+        $summary = (clone $consultations)
+            ->selectRaw('COALESCE(SUM(price_dh), 0) as confirmed_total_dh')
+            ->selectRaw('COUNT(*) as completed_count')
+            ->first();
+
+        $daily = (clone $consultations)
+            ->selectRaw('DATE(completed_at) as date')
+            ->selectRaw('SUM(price_dh) as total_dh')
+            ->selectRaw('COUNT(*) as consultations_count')
+            ->groupByRaw('DATE(completed_at)')
+            ->orderBy('date')
+            ->get()
+            ->map(fn (object $row): array => [
+                'date' => $row->date,
+                'total_dh' => (int) $row->total_dh,
+                'consultations_count' => (int) $row->consultations_count,
+            ]);
+
+        $recent = (clone $consultations)
+            ->latest('completed_at')
+            ->limit(10)
+            ->get(['id', 'specialty', 'mode', 'price_dh', 'completed_at'])
+            ->map(fn (Consultation $consultation): array => [
+                'id' => $consultation->id,
+                'specialty' => $consultation->specialty->value,
+                'mode' => $consultation->mode->value,
+                'price_dh' => $consultation->price_dh,
+                'completed_at' => $consultation->completed_at?->toIso8601String(),
+            ]);
+
+        $completedCount = (int) $summary->completed_count;
+        $confirmedTotal = (int) $summary->confirmed_total_dh;
+
+        return response()->json(['data' => [
+            'days' => $days,
+            'from' => $from->toDateString(),
+            'to' => $to->toDateString(),
+            'confirmed_total_dh' => $confirmedTotal,
+            'completed_count' => $completedCount,
+            'average_dh' => $completedCount > 0
+                ? (int) round($confirmedTotal / $completedCount)
+                : 0,
+            'daily' => $daily,
+            'recent' => $recent,
+        ]]);
+    }
+
     public function available(Request $request): AnonymousResourceCollection
     {
         $user = $request->user();

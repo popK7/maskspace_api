@@ -13,10 +13,10 @@ use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\DB;
@@ -69,6 +69,7 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
             'profile_completed_at' => 'datetime',
             'activation_requested_at' => 'datetime',
             'last_login_at' => 'datetime',
+            'last_seen_at' => 'datetime',
             'location_updated_at' => 'datetime',
             'password' => 'hashed',
         ];
@@ -136,6 +137,13 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
         return $query->whereHas('roles', fn (Builder $membership) => $membership
             ->where('role', $role)
             ->whereNotNull('profile_completed_at'));
+    }
+
+    public function scopeForActiveRole(Builder $query, UserRole|string $role): Builder
+    {
+        $role = $role instanceof UserRole ? $role->value : $role;
+
+        return $query->where('users.role', $role)->forRole($role);
     }
 
     public function refreshTokens(): HasMany

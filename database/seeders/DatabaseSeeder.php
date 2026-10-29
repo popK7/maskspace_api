@@ -44,7 +44,6 @@ class DatabaseSeeder extends Seeder
                 ['specialties' => ['generaliste', 'cardiologue', 'pediatre']]],
             [UserRole::Beaute, 'Amina Fall', 'beaute@transport.app', '+212 6 21 40 59 68',
                 ['specialties' => ['coiffeur', 'manucure', 'epilation', 'tresses']]],
-            [UserRole::Admin, 'Administrateur', 'admin@transport.app', '+212 6 00 00 00 00', []],
         ];
 
         foreach ($demo as [$role, $name, $email, $phone, $profile]) {

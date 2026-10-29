@@ -3,6 +3,7 @@
 namespace Tests\Feature\Care;
 
 use App\Enums\UserRole;
+use App\Models\Consultation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\InteractsWithAuth;
@@ -109,6 +110,73 @@ class ConsultationTest extends TestCase
             'price_dh' => 500,
         ])->assertStatus(409)
             ->assertJsonPath('code', 'consultation_bad_status');
+    }
+
+    public function test_doctor_earnings_include_only_their_confirmed_completed_consultations_in_period(): void
+    {
+        $doctor = $this->makeMedecin(['generaliste']);
+        $otherDoctor = $this->makeMedecin(['generaliste']);
+        $client = $this->makeClient();
+
+        Consultation::create([
+            'client_id' => $client->id,
+            'medecin_id' => $doctor->id,
+            'specialty' => 'generaliste',
+            'mode' => 'cabinet',
+            'status' => 'completed',
+            'price_dh' => 350,
+            'price_status' => 'accepted',
+            'completed_at' => now()->subDays(2),
+        ]);
+        Consultation::create([
+            'client_id' => $client->id,
+            'medecin_id' => $doctor->id,
+            'specialty' => 'generaliste',
+            'mode' => 'domicile',
+            'status' => 'completed',
+            'price_dh' => 500,
+            'price_status' => 'accepted',
+            'completed_at' => now()->subDays(10),
+        ]);
+        Consultation::create([
+            'client_id' => $client->id,
+            'medecin_id' => $doctor->id,
+            'specialty' => 'generaliste',
+            'mode' => 'cabinet',
+            'status' => 'cancelled',
+            'price_dh' => 900,
+            'price_status' => 'accepted',
+            'completed_at' => now()->subDay(),
+        ]);
+        Consultation::create([
+            'client_id' => $client->id,
+            'medecin_id' => $otherDoctor->id,
+            'specialty' => 'generaliste',
+            'mode' => 'cabinet',
+            'status' => 'completed',
+            'price_dh' => 1200,
+            'price_status' => 'accepted',
+            'completed_at' => now()->subDay(),
+        ]);
+
+        $doctorToken = $this->tokenFor($doctor);
+
+        $this->api($doctorToken)->getJson('/api/v1/medecin/earnings?days=7')
+            ->assertOk()
+            ->assertJsonPath('data.days', 7)
+            ->assertJsonPath('data.confirmed_total_dh', 350)
+            ->assertJsonPath('data.completed_count', 1)
+            ->assertJsonPath('data.average_dh', 350)
+            ->assertJsonPath('data.daily.0.total_dh', 350)
+            ->assertJsonPath('data.recent.0.price_dh', 350);
+
+        $this->api($doctorToken)->getJson('/api/v1/medecin/earnings?days=30')
+            ->assertOk()
+            ->assertJsonPath('data.confirmed_total_dh', 850)
+            ->assertJsonPath('data.completed_count', 2);
+
+        $this->api($doctorToken)->getJson('/api/v1/medecin/earnings?days=14')
+            ->assertUnprocessable();
     }
 
     public function test_only_the_assigned_doctor_can_propose_consultation_price(): void

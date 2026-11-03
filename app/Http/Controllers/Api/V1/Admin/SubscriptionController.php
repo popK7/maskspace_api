@@ -15,9 +15,14 @@ class SubscriptionController extends Controller
     {
         $data = $request->validate([
             'receipt_number' => ['required', 'string', 'max:20'],
+            'amount_paid_usd' => ['required', 'numeric', 'min:0', 'max:99999999.99', 'decimal:0,2'],
         ]);
 
-        $receipt = $this->subscriptions->activate($data['receipt_number'], $request->user());
+        $receipt = $this->subscriptions->activate(
+            $data['receipt_number'],
+            $request->user(),
+            (string) $data['amount_paid_usd'],
+        );
 
         return response()->json(['data' => $receipt]);
     }

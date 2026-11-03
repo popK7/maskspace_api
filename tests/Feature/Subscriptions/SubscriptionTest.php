@@ -44,13 +44,36 @@ class SubscriptionTest extends TestCase
 
         $adminToken = $this->tokenFor(User::factory()->admin()->create());
         $this->api($adminToken)
-            ->postJson('/api/v1/admin/subscriptions/activate', ['receipt_number' => $receipt])
+            ->postJson('/api/v1/admin/subscriptions/activate', [
+                'receipt_number' => $receipt,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('amount_paid_usd');
+        foreach ([-1, 18.555, 100000000] as $invalidAmount) {
+            $this->api($adminToken)
+                ->postJson('/api/v1/admin/subscriptions/activate', [
+                    'receipt_number' => $receipt,
+                    'amount_paid_usd' => $invalidAmount,
+                ])
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('amount_paid_usd');
+        }
+
+        $this->api($adminToken)
+            ->postJson('/api/v1/admin/subscriptions/activate', [
+                'receipt_number' => $receipt,
+                'amount_paid_usd' => '18.50',
+            ])
             ->assertOk()
             ->assertJsonPath('data.status', 'active')
+            ->assertJsonPath('data.amount_paid_usd', '18.50')
             ->assertJsonPath('data.activated_by', User::where('role', UserRole::Admin)->value('id'));
 
         $this->api($adminToken)
-            ->postJson('/api/v1/admin/subscriptions/activate', ['receipt_number' => $receipt])
+            ->postJson('/api/v1/admin/subscriptions/activate', [
+                'receipt_number' => $receipt,
+                'amount_paid_usd' => '18.50',
+            ])
             ->assertStatus(409)
             ->assertJsonPath('code', 'subscription_receipt_processed');
 
@@ -58,6 +81,10 @@ class SubscriptionTest extends TestCase
             'active',
             SubscriptionReceipt::where('receipt_number', $receipt)->value('status'),
         );
+        $this->assertDatabaseHas('subscription_receipts', [
+            'receipt_number' => $receipt,
+            'amount_paid_usd' => '18.50',
+        ]);
     }
 
     public function test_client_cannot_access_professional_subscription_plans(): void

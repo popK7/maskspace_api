@@ -17,7 +17,7 @@ class SubscriptionService
 {
     /**
      * @return array{
-     *   plans: list<array{code: string, name: string, order_limit: ?int, price_label: string}>,
+     *   plans: list<array{code: string, name: string, order_limit: ?int, reference_price_usd: ?string, price_label: string}>,
      *   receipt: array<string, mixed>|null,
      *   usage: array{completed: int, reserved: int, remaining: ?int}
      * }
@@ -48,10 +48,10 @@ class SubscriptionService
                 ->where('is_active', true)
                 ->orderBy('sort_order')
                 ->orderBy('id')
-                ->get(['code', 'name', 'order_limit', 'price_label', 'description'])
+                ->get(['code', 'name', 'order_limit', 'reference_price_usd', 'price_label', 'description'])
                 ->toArray(),
             'receipt' => $receipt?->only([
-                'receipt_number', 'plan', 'plan_name', 'order_limit', 'status', 'activated_at', 'created_at',
+                'receipt_number', 'plan', 'plan_name', 'order_limit', 'reference_price_usd', 'amount_paid_usd', 'status', 'activated_at', 'created_at',
             ]),
             'usage' => $usage,
         ];
@@ -107,14 +107,15 @@ class SubscriptionService
                 'plan' => $plan->code,
                 'plan_name' => $plan->name,
                 'order_limit' => $plan['order_limit'],
+                'reference_price_usd' => $plan->reference_price_usd,
                 'status' => 'pending',
             ]);
         });
     }
 
-    public function activate(string $receiptNumber, User $admin): SubscriptionReceipt
+    public function activate(string $receiptNumber, User $admin, string $amountPaidUsd): SubscriptionReceipt
     {
-        return DB::transaction(function () use ($receiptNumber, $admin): SubscriptionReceipt {
+        return DB::transaction(function () use ($receiptNumber, $admin, $amountPaidUsd): SubscriptionReceipt {
             $receipt = SubscriptionReceipt::query()
                 ->where('receipt_number', strtoupper(trim($receiptNumber)))
                 ->lockForUpdate()
@@ -143,6 +144,7 @@ class SubscriptionService
                 'status' => 'active',
                 'activated_at' => now(),
                 'activated_by' => $admin->id,
+                'amount_paid_usd' => $amountPaidUsd,
             ])->save();
 
             return $receipt->fresh();

@@ -22,11 +22,13 @@ class SubscriptionPlanManagementTest extends TestCase
             ->postJson('/api/v1/admin/subscription-plans', [
                 'name' => 'Équipe locale',
                 'order_limit' => 22,
+                'reference_price_usd' => 12.5,
                 'description' => 'Pour les équipes.',
             ])
             ->assertCreated()
             ->assertJsonPath('data.name', 'Équipe locale')
             ->assertJsonPath('data.order_limit', 22)
+            ->assertJsonPath('data.reference_price_usd', '12.50')
             ->assertJsonPath('data.price_label', 'Tarif à confirmer au point de vente')
             ->json('data');
 
@@ -36,12 +38,14 @@ class SubscriptionPlanManagementTest extends TestCase
             ->patchJson('/api/v1/admin/subscription-plans/'.$created['id'], [
                 'name' => 'Équipe Plus',
                 'order_limit' => 35,
+                'reference_price_usd' => 15.75,
                 'description' => 'Formule modifiée.',
                 'is_active' => false,
             ])
             ->assertOk()
             ->assertJsonPath('data.name', 'Équipe Plus')
             ->assertJsonPath('data.order_limit', 35)
+            ->assertJsonPath('data.reference_price_usd', '15.75')
             ->assertJsonPath('data.is_active', false);
 
         $this->assertFalse(
@@ -59,20 +63,28 @@ class SubscriptionPlanManagementTest extends TestCase
             ->postJson('/api/v1/admin/subscription-plans', [
                 'name' => 'Formule locale',
                 'order_limit' => 7,
+                'reference_price_usd' => 19.95,
             ])
             ->assertCreated()
             ->json('data');
+
+        $this->api($professionalToken)
+            ->getJson('/api/v1/subscriptions')
+            ->assertOk()
+            ->assertJsonPath('data.plans.0.reference_price_usd', '19.95');
 
         $receipt = $this->api($professionalToken)
             ->postJson('/api/v1/subscriptions', ['plan' => $created['code']])
             ->assertCreated()
             ->assertJsonPath('data.plan_name', 'Formule locale')
-            ->assertJsonPath('data.order_limit', 7);
+            ->assertJsonPath('data.order_limit', 7)
+            ->assertJsonPath('data.reference_price_usd', '19.95');
 
         $this->api($adminToken)
             ->patchJson('/api/v1/admin/subscription-plans/'.$created['id'], [
                 'name' => 'Nouvelle formule locale',
                 'order_limit' => 20,
+                'reference_price_usd' => 30,
                 'is_active' => false,
             ])
             ->assertOk();
@@ -81,6 +93,7 @@ class SubscriptionPlanManagementTest extends TestCase
             'receipt_number' => $receipt->json('data.receipt_number'),
             'plan_name' => 'Formule locale',
             'order_limit' => 7,
+            'reference_price_usd' => '19.95',
         ]);
 
         $this->api($professionalToken)
@@ -105,5 +118,21 @@ class SubscriptionPlanManagementTest extends TestCase
                 'order_limit' => 5,
             ])
             ->assertForbidden();
+    }
+
+    public function test_reference_price_must_be_non_negative_and_have_at_most_two_decimals(): void
+    {
+        $adminToken = $this->tokenFor(User::factory()->admin()->create());
+
+        foreach ([-1, 12.345, 100000000] as $price) {
+            $this->api($adminToken)
+                ->postJson('/api/v1/admin/subscription-plans', [
+                    'name' => 'Prix invalide',
+                    'order_limit' => 10,
+                    'reference_price_usd' => $price,
+                ])
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('reference_price_usd');
+        }
     }
 }

@@ -99,6 +99,11 @@ class RideService
             if ($ride->status !== RideStatus::Searching || $ride->job_id !== null || $ride->transfer_id !== null) {
                 throw new ApiException('Cette course n’accepte plus de propositions.', 409, 'ride_not_searching');
             }
+            if (RideOffer::where('ride_id', $ride->id)
+                ->where('driver_id', $driver->id)
+                ->exists()) {
+                throw new ApiException('Vous avez déjà proposé un prix pour cette course.', 409, 'ride_offer_already_submitted');
+            }
             if (! Geo::inServiceArea($driver, $ride->pickup_latitude, $ride->pickup_longitude)) {
                 throw new ApiException('Cette course est hors de votre zone de service actuelle.', 409, 'outside_service_area');
             }
@@ -113,15 +118,14 @@ class RideService
                 $ride->pickup_longitude,
             );
 
-            return RideOffer::updateOrCreate(
-                ['ride_id' => $ride->id, 'driver_id' => $driver->id],
-                [
-                    'status' => 'pending',
-                    'price_cents' => $priceCents,
-                    'eta_minutes' => Geo::etaMinutes($distance),
-                    'distance_to_pickup_km' => round($distance, 2),
-                ],
-            );
+            return RideOffer::create([
+                'ride_id' => $ride->id,
+                'driver_id' => $driver->id,
+                'status' => 'pending',
+                'price_cents' => $priceCents,
+                'eta_minutes' => Geo::etaMinutes($distance),
+                'distance_to_pickup_km' => round($distance, 2),
+            ]);
         });
 
         $this->notifications->sendToUser(

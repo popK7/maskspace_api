@@ -28,6 +28,8 @@ class SubscriptionIndexController extends Controller
                 'plan' => $receipt->plan,
                 'plan_name' => $receipt->plan_name,
                 'order_limit' => $receipt->order_limit,
+                'reference_price_usd' => $receipt->reference_price_usd,
+                'amount_paid_usd' => $receipt->amount_paid_usd,
                 'status' => $receipt->status,
                 'created_at' => $receipt->created_at?->toIso8601String(),
                 'activated_at' => $receipt->activated_at?->toIso8601String(),

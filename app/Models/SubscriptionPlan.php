@@ -12,6 +12,7 @@ class SubscriptionPlan extends Model
     {
         return [
             'order_limit' => 'integer',
+            'reference_price_usd' => 'decimal:2',
             'is_active' => 'boolean',
             'sort_order' => 'integer',
         ];

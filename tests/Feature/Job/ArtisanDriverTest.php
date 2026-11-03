@@ -106,6 +106,63 @@ class ArtisanDriverTest extends TestCase
         return $this->api($token)->getJson('/api/v1/driver/rides/available')->assertOk()->json('data');
     }
 
+    private function createClientRide(string $clientToken): int
+    {
+        return $this->api($clientToken)->postJson('/api/v1/rides', [
+            'pickup_address' => 'Maârif, Casablanca',
+            'pickup_latitude' => 33.5896,
+            'pickup_longitude' => -7.6322,
+            'dropoff_address' => 'Gauthier, Casablanca',
+            'dropoff_latitude' => 33.5922,
+            'dropoff_longitude' => -7.6250,
+        ])->assertCreated()->json('data.id');
+    }
+
+    public function test_driver_can_only_submit_one_price_while_a_ride_is_searching(): void
+    {
+        $client = $this->tokenFor($this->makeClient());
+        $driver = $this->tokenFor($this->makeDriver());
+        $rideId = $this->createClientRide($client);
+
+        $this->api($driver)->postJson("/api/v1/driver/rides/{$rideId}/offer", [
+            'price_cents' => 4200,
+        ])->assertCreated()->assertJsonPath('data.price_cents', 4200);
+
+        $this->api($driver)->postJson("/api/v1/driver/rides/{$rideId}/offer", [
+            'price_cents' => 4500,
+        ])->assertStatus(409)->assertJsonPath('code', 'ride_offer_already_submitted');
+
+        $this->assertDatabaseCount('ride_offers', 1);
+        $this->assertDatabaseHas('ride_offers', [
+            'ride_id' => $rideId,
+            'price_cents' => 4200,
+        ]);
+    }
+
+    public function test_driver_cannot_submit_a_price_for_completed_or_cancelled_rides(): void
+    {
+        $clientUser = $this->makeClient();
+        $client = $this->tokenFor($clientUser);
+        $driver = $this->tokenFor($this->makeDriver());
+
+        $completedRideId = $this->createClientRide($client);
+        Ride::findOrFail($completedRideId)
+            ->forceFill(['status' => RideStatus::Completed])
+            ->save();
+        $this->api($driver)->postJson("/api/v1/driver/rides/{$completedRideId}/offer", [
+            'price_cents' => 4200,
+        ])->assertStatus(409)->assertJsonPath('code', 'ride_not_searching');
+
+        $cancelledRideId = $this->createClientRide($client);
+        $this->api($client)->postJson("/api/v1/rides/{$cancelledRideId}/cancel")
+            ->assertOk()->assertJsonPath('data.status', 'cancelled');
+        $this->api($driver)->postJson("/api/v1/driver/rides/{$cancelledRideId}/offer", [
+            'price_cents' => 4200,
+        ])->assertStatus(409)->assertJsonPath('code', 'ride_not_searching');
+
+        $this->assertDatabaseCount('ride_offers', 0);
+    }
+
     public function test_artisan_manages_trusted_drivers(): void
     {
         $artisan = $this->makeArtisan();

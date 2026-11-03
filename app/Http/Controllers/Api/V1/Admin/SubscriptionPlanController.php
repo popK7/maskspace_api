@@ -25,6 +25,7 @@ class SubscriptionPlanController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:80'],
             'order_limit' => ['present', 'nullable', 'integer', 'between:1,65535'],
+            'reference_price_usd' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:99999999.99', 'decimal:0,2'],
             'description' => ['nullable', 'string', 'max:255'],
             'is_active' => ['sometimes', 'boolean'],
             'sort_order' => ['sometimes', 'integer', 'between:0,65535'],
@@ -46,6 +47,7 @@ class SubscriptionPlanController extends Controller
         $data = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:80'],
             'order_limit' => ['sometimes', 'present', 'nullable', 'integer', 'between:1,65535'],
+            'reference_price_usd' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:99999999.99', 'decimal:0,2'],
             'description' => ['sometimes', 'nullable', 'string', 'max:255'],
             'is_active' => ['sometimes', 'boolean'],
             'sort_order' => ['sometimes', 'integer', 'between:0,65535'],

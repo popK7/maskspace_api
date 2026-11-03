@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\Admin\AppReleaseController;
 use App\Http\Controllers\Api\V1\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Api\V1\Admin\SubscriptionController as AdminSubscriptionController;
 use App\Http\Controllers\Api\V1\Admin\SubscriptionIndexController as AdminSubscriptionIndexController;
+use App\Http\Controllers\Api\V1\Admin\SubscriptionFinanceReportController as AdminSubscriptionFinanceReportController;
 use App\Http\Controllers\Api\V1\Admin\SubscriptionPlanController as AdminSubscriptionPlanController;
 use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\V1\Artisan\DriverController as ArtisanDriverController;
@@ -373,6 +374,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::patch('subscription-plans/{subscriptionPlan}', [AdminSubscriptionPlanController::class, 'update'])
                 ->whereNumber('subscriptionPlan');
             Route::get('subscriptions', AdminSubscriptionIndexController::class);
+            Route::get('subscription-finance-report', AdminSubscriptionFinanceReportController::class);
             Route::post('subscriptions/activate', [AdminSubscriptionController::class, 'activate'])
                 ->middleware('throttle:20,1');
             Route::get('users', [AdminUserController::class, 'index']);

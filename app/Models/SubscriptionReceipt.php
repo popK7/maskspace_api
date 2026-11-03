@@ -12,6 +12,8 @@ class SubscriptionReceipt extends Model
     protected function casts(): array
     {
         return [
+            'reference_price_usd' => 'decimal:2',
+            'amount_paid_usd' => 'decimal:2',
             'activated_at' => 'datetime',
         ];
     }

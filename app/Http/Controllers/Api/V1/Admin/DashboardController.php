@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Http\Controllers\Controller;
+use App\Models\ProviderDocument;
 use App\Models\SubscriptionReceipt;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -34,6 +35,9 @@ class DashboardController extends Controller
             'subscriptions' => [
                 'pending' => SubscriptionReceipt::query()->where('status', 'pending')->count(),
                 'active' => SubscriptionReceipt::query()->where('status', 'active')->count(),
+            ],
+            'verifications' => [
+                'pending_documents' => ProviderDocument::query()->where('status', ProviderDocument::PENDING)->count(),
             ],
         ]]);
     }

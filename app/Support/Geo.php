@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 
 /** Distances et tarifs d'intervention / de course. */
 class Geo
@@ -15,6 +16,21 @@ class Geo
         $a = sin($dLat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
 
         return $r * 2 * atan2(sqrt($a), sqrt(1 - $a));
+    }
+
+    /**
+     * Restreint une requete aux lignes dont latitude/longitude tombent dans le
+     * carre de cote 2 x $km centre sur le point (pre-filtre indexable avant Geo::km).
+     */
+    public static function whereWithinBox(Builder $query, float $latitude, float $longitude, float $km): Builder
+    {
+        $dLat = $km / 111.32;
+        $cos = max(0.01, cos(deg2rad($latitude)));
+        $dLng = $km / (111.32 * $cos);
+
+        return $query
+            ->whereBetween('latitude', [$latitude - $dLat, $latitude + $dLat])
+            ->whereBetween('longitude', [$longitude - $dLng, $longitude + $dLng]);
     }
 
     public static function roadKm(float $km): float

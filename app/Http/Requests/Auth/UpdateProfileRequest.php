@@ -40,8 +40,7 @@ class UpdateProfileRequest extends FormRequest
 
         $rules = [
             'name' => ['sometimes', 'required', 'string', 'min:2', 'max:120'],
-            'phone' => ['sometimes', 'required', 'string', 'regex:/^\+?[0-9\s().-]{6,20}$/'],
-        ];
+            'phone' => ['sometimes', 'required', 'string', 'regex:/^\+?[0-9\s().-]{6,20}$/'],        ];
 
         if ($role->requiresVehicle()) {
             $rules['vehicle_model'] = ['sometimes', 'required', 'string', 'max:120'];

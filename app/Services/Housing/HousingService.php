@@ -6,17 +6,21 @@ use App\Enums\HousingStatus;
 use App\Enums\JobOfferStatus;
 use App\Enums\RentalBilling;
 use App\Enums\UserRole;
+use App\Enums\UserStatus;
 use App\Exceptions\ApiException;
 use App\Models\HousingOffer;
 use App\Models\HousingRequest;
 use App\Models\User;
+use App\Services\Notifications\PushNotificationService;
 use Illuminate\Support\Facades\DB;
 
 class HousingService
 {
+    public function __construct(private readonly PushNotificationService $notifications) {}
+
     public function publish(User $client, array $data): HousingRequest
     {
-        return HousingRequest::create([
+        $request = HousingRequest::create([
             'client_id' => $client->id,
             'kind' => $data['kind'],
             'zone' => $data['zone'],
@@ -30,6 +34,35 @@ class HousingService
             'note' => $data['note'] ?? null,
             'status' => HousingStatus::Searching,
         ]);
+
+        $this->notifySectorDemarcheurs($request);
+
+        return $request;
+    }
+
+    /**
+     * Les demarcheurs travaillent par secteur declare (pas par GPS) : une demande est
+     * annoncee aux demarcheurs en service dont le secteur couvre la zone demandee,
+     * c'est-a-dire exactement ceux qui la verront dans leur liste.
+     */
+    private function notifySectorDemarcheurs(HousingRequest $request): void
+    {
+        $where = $request->zone_name ?: $request->zone;
+
+        User::query()
+            ->with('profile')
+            ->forActiveRole(UserRole::Demarcheur)
+            ->where('status', UserStatus::Active)
+            ->where('is_visible', true)
+            ->where('is_available', true)
+            ->get()
+            ->filter(fn (User $demarcheur) => in_array($request->zone, $this->zonesOf($demarcheur), true))
+            ->each(fn (User $demarcheur) => $this->notifications->sendToUser(
+                $demarcheur,
+                'Nouvelle demande de logement',
+                "Un client cherche un logement à {$where}.",
+                ['type' => 'housing_request', 'housing_request_id' => $request->id],
+            ));
     }
 
     public function offer(User $demarcheur, HousingRequest $request, string $message): HousingOffer

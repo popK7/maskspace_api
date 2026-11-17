@@ -30,6 +30,7 @@ class Consultation extends Model
             'price_accepted_at' => 'datetime',
             'assigned_at' => 'datetime',
             'completed_at' => 'datetime',
+            'rating' => 'integer',
             'cancelled_at' => 'datetime',
         ];
     }

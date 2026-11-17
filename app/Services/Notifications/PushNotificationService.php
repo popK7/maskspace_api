@@ -2,6 +2,8 @@
 
 namespace App\Services\Notifications;
 
+use App\Jobs\SendPushNotification;
+use App\Models\PushDevice;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
 use Kreait\Firebase\Contract\Messaging;
@@ -17,6 +19,9 @@ class PushNotificationService
     private bool $messagingResolved = false;
 
     /**
+     * Met la notification en file d'attente : la requete HTTP ne patiente pas
+     * pendant l'appel a Firebase. Envoyee apres validation de la transaction en cours.
+     *
      * @param  array<string, int|string|bool>  $data
      */
     public function sendToUser(
@@ -29,8 +34,24 @@ class PushNotificationService
             return;
         }
 
-        $tokens = $user->pushDevices()->pluck('token');
-        if ($tokens->isEmpty()) {
+        $payload = [];
+        foreach ($data as $key => $value) {
+            $payload[$key] = (string) $value;
+        }
+
+        SendPushNotification::dispatch($user->id, $title, $body, $payload)->afterCommit();
+    }
+
+    /**
+     * Envoi effectif (appele par le job) : un seul appel Firebase pour tous les
+     * appareils de l'utilisateur, puis purge des jetons invalides ou desinstalles.
+     *
+     * @param  array<string, string>  $data
+     */
+    public function deliver(int $userId, string $title, string $body, array $data = []): void
+    {
+        $tokens = PushDevice::where('user_id', $userId)->pluck('token')->all();
+        if ($tokens === []) {
             return;
         }
 
@@ -39,24 +60,24 @@ class PushNotificationService
             return;
         }
 
-        $messageData = [];
-        foreach ($data as $key => $value) {
-            $messageData[$key] = (string) $value;
+        $message = CloudMessage::new()
+            ->withNotification(FirebaseNotification::create($title, $body))
+            ->withData($data);
+
+        try {
+            $report = $messaging->sendMulticast($message, $tokens);
+        } catch (Throwable $exception) {
+            Log::warning('Firebase push notification could not be sent.', [
+                'user_id' => $userId,
+                'exception' => $exception,
+            ]);
+
+            throw $exception; // le job sera retente
         }
 
-        foreach ($tokens as $token) {
-            try {
-                $message = CloudMessage::new()
-                    ->withToken($token)
-                    ->withNotification(FirebaseNotification::create($title, $body))
-                    ->withData($messageData);
-                $messaging->send($message);
-            } catch (Throwable $exception) {
-                Log::warning('Firebase push notification could not be sent.', [
-                    'user_id' => $user->id,
-                    'exception' => $exception,
-                ]);
-            }
+        $stale = array_values(array_unique(array_merge($report->invalidTokens(), $report->unknownTokens())));
+        if ($stale !== []) {
+            PushDevice::where('user_id', $userId)->whereIn('token', $stale)->delete();
         }
     }
 
@@ -66,6 +87,11 @@ class PushNotificationService
             return $this->messaging;
         }
         $this->messagingResolved = true;
+
+        // Permet d'injecter un client Firebase (tests, configuration alternative).
+        if (app()->bound(Messaging::class)) {
+            return $this->messaging = app(Messaging::class);
+        }
 
         $credentials = config('services.firebase.credentials');
         if (! is_string($credentials) || $credentials === '' || ! is_file($credentials)) {

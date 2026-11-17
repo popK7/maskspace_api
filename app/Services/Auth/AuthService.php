@@ -22,6 +22,7 @@ class AuthService
         private readonly TokenService $tokens,
         private readonly OtpService $otp,
         private readonly GoogleIdentity $google,
+        private readonly PhoneIdentity $phoneIdentity,
     ) {}
 
     /**
@@ -30,12 +31,21 @@ class AuthService
      */
     public function register(array $data, Request $request): array
     {
-        $user = DB::transaction(function () use ($data) {
+        $verifiedPhone = filled($data['firebase_token'] ?? null)
+            ? $this->phoneIdentity->verifiedPhone($data['firebase_token'])
+            : null;
+        if ($verifiedPhone !== null) {
+            $this->ensurePhoneIsFree($verifiedPhone);
+        }
+
+        $user = DB::transaction(function () use ($data, $verifiedPhone) {
             // role / status sont assignes explicitement : jamais via mass-assignment.
             $user = (new User)->forceFill([
                 'name' => 'Nouveau compte',
-                'email' => $data['email'],
-                'phone' => $data['phone'],
+                'email' => $data['email'] ?? null,
+                'phone' => $verifiedPhone ?? $data['phone'],
+                'phone_number' => $verifiedPhone,
+                'phone_verified_at' => $verifiedPhone === null ? null : now(),
                 'password' => $data['password'],
                 'role' => UserRole::from($data['role'] ?? UserRole::Client->value),
                 'status' => UserStatus::Active,
@@ -55,9 +65,12 @@ class AuthService
     }
 
     /** @return array{user: User, tokens: array} */
-    public function login(string $email, string $password, Request $request, ?string $deviceName = null): array
+    public function login(string $identifier, string $password, Request $request, ?string $deviceName = null): array
     {
-        $user = User::with('profile')->where('email', strtolower($email))->first();
+        // Identifiant : numero verifie (E.164, commence par +) ou e-mail (anciens comptes).
+        $user = str_starts_with($identifier, '+')
+            ? User::with('profile')->where('phone_number', $identifier)->first()
+            : User::with('profile')->where('email', strtolower($identifier))->first();
 
         // Hash::check est execute meme si l'utilisateur n'existe pas : temps de reponse constant,
         // pas d'enumeration de comptes.
@@ -81,6 +94,56 @@ class AuthService
             'user' => $user,
             'tokens' => $this->tokens->issue($user, $request, $deviceName),
         ];
+    }
+
+    /**
+     * Mot de passe oublie par SMS : le jeton Firebase prouve la possession du numero.
+     * Ferme toutes les sessions existantes.
+     */
+    public function resetPasswordWithPhone(string $firebaseToken, string $newPassword): void
+    {
+        $phone = $this->phoneIdentity->verifiedPhone($firebaseToken);
+        $user = User::where('phone_number', $phone)->first();
+
+        if ($user === null) {
+            throw new ApiException('Aucun compte n’est associé à ce numéro.', 404, 'phone_not_found');
+        }
+        if ($user->isSuspended()) {
+            throw ApiException::accountSuspended();
+        }
+
+        DB::transaction(function () use ($user, $newPassword) {
+            $user->forceFill(['password' => $newPassword])->save();
+            $this->tokens->revokeAllFor($user);
+        });
+    }
+
+    /** Associe un numero verifie a un compte existant (il devient son identifiant de connexion). */
+    public function attachVerifiedPhone(User $user, string $firebaseToken): User
+    {
+        $phone = $this->phoneIdentity->verifiedPhone($firebaseToken);
+        $this->ensurePhoneIsFree($phone, $user);
+
+        $user->forceFill([
+            'phone' => $phone,
+            'phone_number' => $phone,
+            'phone_verified_at' => now(),
+        ])->save();
+
+        return $user;
+    }
+
+    private function ensurePhoneIsFree(string $phone, ?User $except = null): void
+    {
+        $taken = User::where('phone_number', $phone)
+            ->when($except, fn ($q) => $q->whereKeyNot($except->id))
+            ->exists();
+
+        if ($taken) {
+            throw ValidationException::withMessages([
+                'phone' => ['Ce numéro est déjà utilisé par un autre compte. Connectez-vous ou réinitialisez votre mot de passe.'],
+            ]);
+        }
     }
 
     /** @return array{user: User, tokens: array} */
@@ -173,6 +236,9 @@ class AuthService
     {
         if ($user->hasVerifiedEmail()) {
             return;
+        }
+        if ($user->email === null) {
+            throw new ApiException('Aucune adresse e-mail n’est associée à ce compte.', 422, 'email_missing');
         }
 
         if (! $this->otp->verify($user->email, OtpPurpose::EmailVerification, $code)) {

@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use App\Models\Consultation;
 use App\Models\ConsultationOffer;
+use App\Services\Reviews\ProviderReviews;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -17,6 +18,9 @@ class ConsultationResource extends JsonResource
         if ($viewer && $viewer->id !== $this->client_id) {
             $offers = $offers->where('medecin_id', $viewer->id)->values();
         }
+        $ratings = $viewer && $viewer->id === $this->client_id && $offers->isNotEmpty()
+            ? ProviderReviews::averages(Consultation::class, 'medecin_id', $offers->pluck('medecin_id')->map(fn ($id) => (int) $id)->unique()->values()->all())
+            : [];
 
         return [
             'id' => $this->id,
@@ -34,6 +38,8 @@ class ConsultationResource extends JsonResource
                 'medecin' => $offer->relationLoaded('medecin') && $offer->medecin ? [
                     'id' => $offer->medecin->id,
                     'name' => $offer->medecin->name,
+                    'rating' => $ratings[$offer->medecin->id]['avg'] ?? null,
+                    'rating_count' => $ratings[$offer->medecin->id]['count'] ?? 0,
                 ] : null,
             ])->values(),
             'client' => $this->when($this->relationLoaded('client') && $this->client, fn () => [
@@ -45,6 +51,8 @@ class ConsultationResource extends JsonResource
                 'name' => $this->medecin->name,
                 'phone' => in_array($this->status->value, ['assigned', 'completed'], true) ? $this->medecin->phone : null,
             ]),
+            'rating' => $this->rating,
+            'review' => $this->review,
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }

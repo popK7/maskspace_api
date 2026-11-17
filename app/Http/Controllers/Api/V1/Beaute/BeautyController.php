@@ -7,6 +7,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\BeautyRequestResource;
 use App\Models\BeautyRequest;
 use App\Services\Beauty\BeautyService;
+use App\Services\Dispatch\LocationPing;
+use App\Services\Reviews\ProviderReviews;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -20,7 +22,7 @@ class BeautyController extends Controller
         $user = $request->user();
         $specialties = $this->beauty->specialtiesOf($user);
         $open = $user->hasCompletedProfile() && $user->is_available && $user->is_visible
-            ? BeautyRequest::where('status', BeautyStatus::Searching)->whereIn('specialty', $specialties)->count()
+            ? $this->beauty->availableFor($user, 200)->count()
             : 0;
 
         return response()->json(['data' => [
@@ -28,6 +30,7 @@ class BeautyController extends Controller
             'specialties' => $specialties,
             'open_requests' => $open,
             'assigned' => BeautyRequest::where('pro_id', $user->id)->where('status', BeautyStatus::Assigned)->count(),
+            ...ProviderReviews::summaryFor(BeautyRequest::class, 'pro_id', $user->id),
         ]]);
     }
 
@@ -38,14 +41,20 @@ class BeautyController extends Controller
             return BeautyRequestResource::collection(collect());
         }
 
-        $rows = BeautyRequest::with(['client', 'offers.pro'])
-            ->where('status', BeautyStatus::Searching)
-            ->whereIn('specialty', $this->beauty->specialtiesOf($user))
-            ->latest('id')
-            ->limit(30)
-            ->get();
+        return BeautyRequestResource::collection($this->beauty->availableFor($user))
+            ->additional(['meta' => ['location_required' => ! $user->hasFreshLocation()]]);
+    }
 
-        return BeautyRequestResource::collection($rows);
+    /** POST /beaute/location { latitude, longitude } — position du pro en service. */
+    public function location(Request $request, LocationPing $ping): JsonResponse
+    {
+        $data = $request->validate([
+            'latitude' => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
+        ]);
+        $ping->record($request->user(), (float) $data['latitude'], (float) $data['longitude']);
+
+        return response()->json(['data' => ['recorded' => true]]);
     }
 
     public function index(Request $request): AnonymousResourceCollection

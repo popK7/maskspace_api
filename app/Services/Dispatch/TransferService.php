@@ -11,6 +11,7 @@ use App\Models\MoneyTransfer;
 use App\Models\Ride;
 use App\Models\TransferOffer;
 use App\Models\User;
+use App\Services\Notifications\NearbyProviders;
 use App\Support\Geo;
 use Illuminate\Support\Facades\DB;
 
@@ -19,11 +20,12 @@ class TransferService
     public function __construct(
         private readonly LocationPing $ping,
         private readonly RideService $rides,
+        private readonly NearbyProviders $nearby,
     ) {}
 
     public function publish(User $client, array $data): MoneyTransfer
     {
-        return MoneyTransfer::create([
+        $transfer = MoneyTransfer::create([
             'client_id' => $client->id,
             'amount' => $data['amount'],
             'currency' => $data['currency'],
@@ -36,6 +38,20 @@ class TransferService
             'latitude' => $data['latitude'],
             'longitude' => $data['longitude'],
         ]);
+
+        // Changeurs les plus proches qui couvrent ce pays, libres.
+        $this->nearby->notify(
+            UserRole::Changeur,
+            (float) $transfer->latitude,
+            (float) $transfer->longitude,
+            'Nouvelle demande de transfert',
+            'Un client près de vous souhaite envoyer de l’argent.',
+            ['type' => 'transfer_request', 'transfer_id' => $transfer->id],
+            fn (User $changeur) => in_array($transfer->destination_country, $changeur->profileForRole(UserRole::Changeur)->first()?->specialties ?? [], true)
+                && ! MoneyTransfer::where('changeur_id', $changeur->id)->whereIn('status', TransferStatus::underway())->exists(),
+        );
+
+        return $transfer;
     }
 
     public function offer(
@@ -44,8 +60,7 @@ class TransferService
         float $exchangeRate,
         int $feeAmount,
         ?int $etaMinutes = null,
-    ): TransferOffer
-    {
+    ): TransferOffer {
         $changeur->loadMissing('profile');
         $this->assertChangeurReady($changeur, $transfer->destination_country);
         if (! Geo::inServiceArea($changeur, $transfer->latitude, $transfer->longitude)) {
@@ -193,7 +208,7 @@ class TransferService
 
             $ride = $transfer->ride_id ? Ride::whereKey($transfer->ride_id)->lockForUpdate()->first() : null;
             if ($ride && ! $ride->status->isFinal()) {
-                $this->rides->cancelLocked($ride, 'Transfert annulé.');
+                $this->rides->cancelLocked($ride, 'Transfert annulé.', $actor);
             }
 
             return $transfer->fresh(['changeur.profile', 'client']);

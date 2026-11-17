@@ -6,6 +6,7 @@ use App\Enums\ConsultationStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ConsultationResource;
 use App\Models\Consultation;
+use App\Services\Reviews\ProviderReviews;
 use App\Services\Care\ConsultationService;
 use App\Services\Dispatch\LocationPing;
 use Illuminate\Http\JsonResponse;
@@ -29,6 +30,7 @@ class ConsultationController extends Controller
             'specialties' => $specialties,
             'open_requests' => $open,
             'assigned' => Consultation::where('medecin_id', $user->id)->where('status', ConsultationStatus::Assigned)->count(),
+            ...ProviderReviews::summaryFor(Consultation::class, 'medecin_id', $user->id),
         ]]);
     }
 

@@ -4,6 +4,9 @@ return [
     // Rayon (km) dans lequel un artisan / un transporteur voit une demande.
     'radius_km' => (float) env('JOB_RADIUS_KM', 15),
 
+    // Nombre maximum de prestataires prevenus d'une nouvelle demande (les plus proches d'abord).
+    'notify_max' => (int) env('JOB_NOTIFY_MAX', 10),
+
     // Vitesse moyenne en ville pour les ETA artisan et transporteur.
     'speed_kmh' => (float) env('JOB_SPEED_KMH', 25),
 
@@ -20,4 +23,7 @@ return [
 
     // Offre directe a un transporteur habituel : il a la priorite, puis la course s'ouvre a tous.
     'direct_offer_minutes' => (int) env('JOB_DIRECT_OFFER_MINUTES', 10),
+
+    // Une course sans transporteur au-dela de ce delai est annulee automatiquement.
+    'ride_search_minutes' => (int) env('JOB_RIDE_SEARCH_MINUTES', 15),
 ];

@@ -9,6 +9,7 @@ use App\Enums\UserStatus;
 use App\Exceptions\ApiException;
 use App\Notifications\VerifyEmailCodeNotification;
 use App\Services\Auth\OtpService;
+use App\Services\Verification\ProviderVerificationService;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -66,6 +67,7 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
             'latitude' => 'float',
             'longitude' => 'float',
             'email_verified_at' => 'datetime',
+            'phone_verified_at' => 'datetime',
             'profile_completed_at' => 'datetime',
             'activation_requested_at' => 'datetime',
             'last_login_at' => 'datetime',
@@ -250,7 +252,7 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
 
         $required = [
             filled($this->name) && $this->name !== 'Nouveau compte',
-            filled($this->email),
+            filled($this->email) || $this->phone_verified_at !== null,
             filled($this->phone),
             $this->role !== null,
         ];
@@ -297,11 +299,23 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
                 'account_not_visible',
             );
         }
+
+        if (ProviderVerificationService::requiresVerification($this->role)
+            && ! ProviderVerificationService::isVerified($this)) {
+            throw new ApiException(
+                'Vos pièces justificatives doivent être validées avant de recevoir des demandes.',
+                403,
+                'verification_required',
+            );
+        }
     }
 
     /** Envoie un code a 6 chiffres plutot qu'un lien (adapte au mobile). */
     public function sendEmailVerificationNotification(): void
     {
+        if ($this->email === null) {
+            return;
+        }
         $code = app(OtpService::class)->issue($this->email, OtpPurpose::EmailVerification);
         $this->notify(new VerifyEmailCodeNotification($code));
     }

@@ -7,6 +7,8 @@ use App\Http\Requests\Auth\ForgotPasswordRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Services\Auth\AuthService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rules\Password;
 
 class PasswordResetController extends Controller
 {
@@ -21,6 +23,19 @@ class PasswordResetController extends Controller
         $this->auth->sendPasswordResetCode($request->validated('email'));
 
         return response()->json(['message' => __('auth.messages.reset_link_sent')], 202);
+    }
+
+    /** POST /auth/reset-password/phone — nouveau mot de passe apres confirmation du numero par SMS. */
+    public function resetWithPhone(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'firebase_token' => ['required', 'string', 'max:4096'],
+            'password' => ['required', 'string', 'confirmed', Password::defaults()],
+        ]);
+
+        $this->auth->resetPasswordWithPhone($data['firebase_token'], $data['password']);
+
+        return response()->json(['message' => __('auth.messages.password_reset')]);
     }
 
     /** POST /auth/reset-password — 200. Ferme aussi toutes les sessions existantes. */

@@ -2,8 +2,8 @@
 
 namespace App\Services\Dispatch;
 
-use App\Enums\JobOfferStatus;
 use App\Enums\JobFinalPriceStatus;
+use App\Enums\JobOfferStatus;
 use App\Enums\JobStatus;
 use App\Enums\RideStatus;
 use App\Enums\UserRole;
@@ -12,6 +12,7 @@ use App\Models\Job;
 use App\Models\JobOffer;
 use App\Models\Ride;
 use App\Models\User;
+use App\Services\Notifications\NearbyProviders;
 use App\Support\Geo;
 use Illuminate\Support\Facades\DB;
 
@@ -20,11 +21,12 @@ class JobService
     public function __construct(
         private readonly LocationPing $ping,
         private readonly RideService $rides,
+        private readonly NearbyProviders $nearby,
     ) {}
 
     public function publish(User $client, array $data): Job
     {
-        return Job::create([
+        $job = Job::create([
             'client_id' => $client->id,
             'trade' => $data['trade'],
             'status' => JobStatus::Searching,
@@ -35,6 +37,20 @@ class JobService
             'latitude' => $data['latitude'],
             'longitude' => $data['longitude'],
         ]);
+
+        // Artisans du metier les plus proches, libres (sans intervention en cours).
+        $this->nearby->notify(
+            UserRole::Artisan,
+            (float) $job->latitude,
+            (float) $job->longitude,
+            'Nouvelle demande d’intervention',
+            'Un client près de vous a besoin d’un artisan.',
+            ['type' => 'job_request', 'job_id' => $job->id],
+            fn (User $artisan) => in_array($job->trade, $artisan->profileForRole(UserRole::Artisan)->first()?->specialties ?? [], true)
+                && ! Job::where('artisan_id', $artisan->id)->whereIn('status', JobStatus::underway())->exists(),
+        );
+
+        return $job;
     }
 
     public function offer(User $artisan, Job $job, int $estimatedPriceDh, ?int $etaMinutes = null): JobOffer
@@ -225,7 +241,7 @@ class JobService
 
             $ride = $job->ride_id ? Ride::whereKey($job->ride_id)->lockForUpdate()->first() : null;
             if ($ride && ! $ride->status->isFinal()) {
-                $this->rides->cancelLocked($ride, 'Intervention annulée.');
+                $this->rides->cancelLocked($ride, 'Intervention annulée.', $actor);
             }
 
             return $job->fresh(['artisan.profile', 'client']);

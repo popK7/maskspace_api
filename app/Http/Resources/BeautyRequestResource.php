@@ -3,6 +3,8 @@
 namespace App\Http\Resources;
 
 use App\Models\BeautyOffer;
+use App\Models\BeautyRequest;
+use App\Services\Reviews\ProviderReviews;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -16,6 +18,9 @@ class BeautyRequestResource extends JsonResource
         if ($viewer && $viewer->id !== $this->client_id) {
             $offers = $offers->where('pro_id', $viewer->id)->values();
         }
+        $ratings = $viewer && $viewer->id === $this->client_id && $offers->isNotEmpty()
+            ? ProviderReviews::averages(BeautyRequest::class, 'pro_id', $offers->pluck('pro_id')->map(fn ($id) => (int) $id)->unique()->values()->all())
+            : [];
 
         return [
             'id' => $this->id,
@@ -30,6 +35,8 @@ class BeautyRequestResource extends JsonResource
                 'pro' => $offer->relationLoaded('pro') && $offer->pro ? [
                     'id' => $offer->pro->id,
                     'name' => $offer->pro->name,
+                    'rating' => $ratings[$offer->pro->id]['avg'] ?? null,
+                    'rating_count' => $ratings[$offer->pro->id]['count'] ?? 0,
                 ] : null,
             ])->values(),
             'client' => $this->when($this->relationLoaded('client') && $this->client, fn () => [
@@ -41,6 +48,8 @@ class BeautyRequestResource extends JsonResource
                 'name' => $this->pro->name,
                 'phone' => in_array($this->status->value, ['assigned', 'completed'], true) ? $this->pro->phone : null,
             ]),
+            'rating' => $this->rating,
+            'review' => $this->review,
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }

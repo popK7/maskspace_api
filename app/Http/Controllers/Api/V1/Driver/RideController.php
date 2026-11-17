@@ -157,14 +157,19 @@ class RideController extends Controller
         $todayCount = (clone $done)->whereBetween('completed_at', $today)->count();
         $todayCents = (clone $done)->whereBetween('completed_at', $today)->sum('price_cents');
         $lifetime = (clone $done)->count();
+        $lifetimeCents = (clone $done)->sum('price_cents');
         $active = Ride::where('driver_id', $user->id)->whereIn('status', RideStatus::active())->count();
+        $rating = $this->rides->driverRatings([$user->id])[$user->id] ?? ['avg' => null, 'count' => 0];
 
         return response()->json(['data' => [
             'is_available' => (bool) $user->is_available,
             'today_rides' => $todayCount,
             'today_earnings_cents' => (int) $todayCents,
             'lifetime_rides' => $lifetime,
+            'lifetime_earnings_cents' => (int) $lifetimeCents,
             'active_count' => $active,
+            'rating' => $rating['avg'] !== null ? round($rating['avg'], 1) : null,
+            'rating_count' => $rating['count'],
         ]]);
     }
 

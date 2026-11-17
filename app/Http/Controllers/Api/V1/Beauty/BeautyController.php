@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\BeautyRequestResource;
 use App\Models\BeautyRequest;
 use App\Services\Beauty\BeautyService;
+use App\Services\Reviews\ProviderReviews;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -22,6 +23,10 @@ class BeautyController extends Controller
         $data = $request->validate([
             'specialty' => ['required', Rule::enum(BeautySpecialty::class)],
             'mode' => ['nullable', Rule::enum(BeautyMode::class)],
+            // Position du client : la demande ne part qu'aux pros les plus proches.
+            // Facultative pour ne pas casser les anciennes versions de l'app.
+            'latitude' => ['nullable', 'numeric', 'between:-90,90', 'required_with:longitude'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180', 'required_with:latitude'],
             'note' => ['nullable', 'string', 'max:500'],
         ]);
 
@@ -59,6 +64,26 @@ class BeautyController extends Controller
     public function complete(Request $request, BeautyRequest $beautyRequest): BeautyRequestResource
     {
         return new BeautyRequestResource($this->beauty->complete($request->user(), $beautyRequest));
+    }
+
+    public function review(Request $request, BeautyRequest $beautyRequest, ProviderReviews $reviews): BeautyRequestResource
+    {
+        $data = $request->validate([
+            'rating' => ['required', 'integer', 'between:1,5'],
+            'comment' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $reviewed = $reviews->review(
+            $beautyRequest,
+            'pro_id',
+            $request->user(),
+            (int) $data['rating'],
+            $data['comment'] ?? null,
+            'Demande introuvable.',
+            'Une cliente ou un client vous a attribué',
+        );
+
+        return new BeautyRequestResource($reviewed->load(['client', 'pro']));
     }
 
     public function cancel(Request $request, BeautyRequest $beautyRequest): BeautyRequestResource

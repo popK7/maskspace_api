@@ -3,6 +3,7 @@
 namespace App\Services\Shop;
 
 use App\Enums\OrderStatus;
+use App\Enums\UserRole;
 use App\Models\Order;
 use App\Models\Shop;
 use App\Models\User;
@@ -106,7 +107,7 @@ class CourierTracker
                 'id' => $livreur->id,
                 'name' => $livreur->name,
                 'phone' => $livreur->phone,
-                'vehicle' => $livreur->profileForRole(\App\Enums\UserRole::Livreur)->first()?->vehicle_model,
+                'vehicle' => $livreur->profileForRole(UserRole::Livreur)->first()?->vehicle_model,
                 'rating' => app(LivreurStats::class)->rating($livreur),
             ] : null,
             'courier' => $courier,

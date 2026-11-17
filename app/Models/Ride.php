@@ -28,6 +28,7 @@ class Ride extends Model
             'distance_km' => 'float',
             'price_cents' => 'integer',
             'eta_minutes' => 'integer',
+            'rating' => 'integer',
             'accepted_at' => 'datetime',
             'picked_up_at' => 'datetime',
             'completed_at' => 'datetime',

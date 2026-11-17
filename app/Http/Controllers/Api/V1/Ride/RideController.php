@@ -11,6 +11,7 @@ use App\Services\Dispatch\RideService;
 use App\Services\Shop\LivreurStats;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /** Course vue par le passager (artisan, plus tard client). */
 class RideController extends Controller
@@ -38,18 +39,26 @@ class RideController extends Controller
     {
         $this->authorizePassenger($request, $ride);
 
-        $offers = RideOffer::with('driver.profile')
+        $pending = RideOffer::with('driver.profile')
             ->where('ride_id', $ride->id)
             ->where('status', 'pending')
             ->orderBy('price_cents')
-            ->get()
-            ->map(function (RideOffer $offer) {
+            ->get();
+
+        // Notes chargees en deux requetes groupees : courses notees + avis de livraison.
+        $driverIds = $pending->pluck('driver_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
+        $rideRatings = $this->rides->driverRatings($driverIds);
+        $courierRatings = $this->livreurStats->ratings($driverIds);
+
+        $offers = $pending
+            ->map(function (RideOffer $offer) use ($rideRatings, $courierRatings) {
                 $driver = $offer->driver;
                 $isLivreur = $driver->hasRole(UserRole::Livreur)
                     && ! $driver->hasRole(UserRole::Driver);
-                $rating = $isLivreur
-                    ? $this->livreurStats->rating($driver)
-                    : ['avg' => null, 'count' => 0];
+                $rating = $this->mergeRatings(
+                    $rideRatings[$driver->id] ?? null,
+                    $courierRatings[$driver->id] ?? null,
+                );
 
                 return [
                     'id' => $offer->id,
@@ -78,6 +87,17 @@ class RideController extends Controller
         return new RideResource($this->rides->chooseOffer($request->user(), $ride, $offer));
     }
 
+    /** Historique des courses du passager connecte, les plus recentes d'abord. */
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        $rides = Ride::with(['driver.profile', 'offeredDriver'])
+            ->where('passenger_id', $request->user()->id)
+            ->latest('id')
+            ->paginate(min(50, max(1, $request->integer('per_page', 20))));
+
+        return RideResource::collection($rides);
+    }
+
     public function show(Request $request, Ride $ride): RideResource
     {
         $this->authorizePassenger($request, $ride);
@@ -99,6 +119,38 @@ class RideController extends Controller
         $ride->load(['driver.profile', 'passenger']);
 
         return response()->json(['data' => $this->rides->tracking($ride)]);
+    }
+
+    public function review(Request $request, Ride $ride): RideResource
+    {
+        $this->authorizePassenger($request, $ride);
+        $data = $request->validate([
+            'rating' => ['required', 'integer', 'between:1,5'],
+            'comment' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        return new RideResource($this->rides->review($request->user(), $ride, (int) $data['rating'], $data['comment'] ?? null));
+    }
+
+    /**
+     * Moyenne ponderee de plusieurs sources de notes ; null si aucun avis.
+     *
+     * @param  array{avg: float, count: int}|null  ...$sources
+     * @return array{avg: float|null, count: int}
+     */
+    private function mergeRatings(?array ...$sources): array
+    {
+        $count = 0;
+        $sum = 0.0;
+        foreach ($sources as $source) {
+            if ($source === null || $source['count'] === 0) {
+                continue;
+            }
+            $count += $source['count'];
+            $sum += $source['avg'] * $source['count'];
+        }
+
+        return ['avg' => $count > 0 ? round($sum / $count, 1) : null, 'count' => $count];
     }
 
     private function authorizePassenger(Request $request, Ride $ride): void

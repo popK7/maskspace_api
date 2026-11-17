@@ -9,6 +9,7 @@ use App\Http\Resources\ConsultationResource;
 use App\Models\Consultation;
 use App\Services\Care\ConsultationService;
 use Illuminate\Http\JsonResponse;
+use App\Services\Reviews\ProviderReviews;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Validation\Rule;
@@ -62,6 +63,26 @@ class ConsultationController extends Controller
     public function complete(Request $request, Consultation $consultation): ConsultationResource
     {
         return new ConsultationResource($this->care->complete($request->user(), $consultation));
+    }
+
+    public function review(Request $request, Consultation $consultation, ProviderReviews $reviews): ConsultationResource
+    {
+        $data = $request->validate([
+            'rating' => ['required', 'integer', 'between:1,5'],
+            'comment' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $reviewed = $reviews->review(
+            $consultation,
+            'medecin_id',
+            $request->user(),
+            (int) $data['rating'],
+            $data['comment'] ?? null,
+            'Consultation introuvable.',
+            'Un patient vous a attribué',
+        );
+
+        return new ConsultationResource($reviewed->load(['client', 'medecin']));
     }
 
     public function cancel(Request $request, Consultation $consultation): ConsultationResource

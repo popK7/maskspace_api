@@ -74,10 +74,11 @@ class LivreurStats
     /** Nombre de courses libres que ce livreur peut prendre, dont celles qui lui sont reservees. */
     public function availableCounts(User $livreur): array
     {
-        $rows = Order::visibleToLivreur($livreur->id)
+        $rows = Order::with('shop:id,latitude,longitude')->visibleToLivreur($livreur->id)
             ->where('fulfillment_type', FulfillmentType::Delivery)
             ->whereIn('status', [OrderStatus::Preparing, OrderStatus::Ready])
-            ->get(['id', 'offered_livreur_id', 'offer_expires_at', 'livreur_id']);
+            ->get(['id', 'shop_id', 'offered_livreur_id', 'offer_expires_at', 'livreur_id'])
+            ->filter(fn (Order $o) => OrderService::livreurSees($livreur, $o));
 
         return [
             'available' => $rows->count(),

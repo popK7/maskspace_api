@@ -22,6 +22,7 @@ class UserRoleMembership extends Model
             'role' => UserRole::class,
             'is_visible' => 'boolean',
             'profile_completed_at' => 'datetime',
+            'verified_at' => 'datetime',
         ];
     }
 

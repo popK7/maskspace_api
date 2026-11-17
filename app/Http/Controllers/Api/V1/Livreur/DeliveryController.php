@@ -32,7 +32,8 @@ class DeliveryController extends Controller
             'lng' => ['nullable', 'numeric', 'between:-180,180', 'required_with:lat'],
         ]);
 
-        $me = $request->user()->id;
+        $user = $request->user();
+        $me = $user->id;
 
         // Hors service : aucune course proposee.
         if (! $request->user()->hasCompletedProfile()
@@ -41,14 +42,22 @@ class DeliveryController extends Controller
             return response()->json(['data' => [], 'meta' => ['is_available' => false]]);
         }
 
+        // La position connue du serveur fait foi (c'est elle qui decide de la prise en charge) ;
+        // celle passee en parametre ne sert qu'a afficher une distance si le serveur n'en a pas.
+        $hasFreshLocation = $user->hasFreshLocation();
+        $origin = $hasFreshLocation
+            ? ['lat' => (float) $user->latitude, 'lng' => (float) $user->longitude]
+            : (isset($f['lat'], $f['lng']) ? ['lat' => (float) $f['lat'], 'lng' => (float) $f['lng']] : null);
+
         $rows = Order::with(['shop', 'items'])->visibleToLivreur($me)
             ->where('fulfillment_type', FulfillmentType::Delivery)
             ->whereIn('status', [OrderStatus::Preparing, OrderStatus::Ready])
             ->oldest('id')->limit(100)->get()
-            ->map(function (Order $o) use ($f, $me) {
+            ->filter(fn (Order $o) => OrderService::livreurSees($user, $o))
+            ->map(function (Order $o) use ($origin, $me) {
                 $shop = $o->shop;
-                $distance = isset($f['lat'], $f['lng']) && $shop->hasLocation()
-                    ? round(Shop::haversineKm($f['lat'], $f['lng'], $shop->latitude, $shop->longitude), 2) : null;
+                $distance = $origin !== null && $shop->hasLocation()
+                    ? round(Shop::haversineKm($origin['lat'], $origin['lng'], $shop->latitude, $shop->longitude), 2) : null;
 
                 return [
                     'id' => $o->id,
@@ -80,7 +89,10 @@ class DeliveryController extends Controller
             fn ($a, $b) => ($a['distance_to_shop_km'] ?? INF) <=> ($b['distance_to_shop_km'] ?? INF),
         ]);
 
-        return response()->json(['data' => $rows->values(), 'meta' => ['is_available' => true]]);
+        return response()->json([
+            'data' => $rows->values(),
+            'meta' => ['is_available' => true, 'location_required' => ! $hasFreshLocation],
+        ]);
     }
 
     /**

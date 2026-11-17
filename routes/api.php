@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\Admin\SubscriptionIndexController as AdminSubscr
 use App\Http\Controllers\Api\V1\Admin\SubscriptionFinanceReportController as AdminSubscriptionFinanceReportController;
 use App\Http\Controllers\Api\V1\Admin\SubscriptionPlanController as AdminSubscriptionPlanController;
 use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
+use App\Http\Controllers\Api\V1\Admin\VerificationController as AdminVerificationController;
 use App\Http\Controllers\Api\V1\Artisan\DriverController as ArtisanDriverController;
 use App\Http\Controllers\Api\V1\Artisan\JobController as ArtisanJobController;
 use App\Http\Controllers\Api\V1\Artisan\PresenceController as ArtisanPresenceController;
@@ -48,6 +49,7 @@ use App\Http\Controllers\Api\V1\Shop\OrderController;
 use App\Http\Controllers\Api\V1\Shop\ShopController;
 use App\Http\Controllers\Api\V1\Shop\TrackingController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
+use App\Http\Controllers\Api\V1\VerificationController;
 use App\Http\Controllers\Api\V1\Transfer\TransferController;
 use Illuminate\Support\Facades\Route;
 
@@ -66,6 +68,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         Route::post('refresh', [AuthController::class, 'refresh'])->middleware('throttle:refresh');
         Route::post('forgot-password', [PasswordResetController::class, 'forgot'])->middleware('throttle:forgot-password');
         Route::post('reset-password', [PasswordResetController::class, 'reset'])->middleware('throttle:reset-password');
+        Route::post('reset-password/phone', [PasswordResetController::class, 'resetWithPhone'])->middleware('throttle:reset-password');
 
         // ---- Authentification (access token requis) ----
         // Le logout reste possible pour un compte suspendu (pas de middleware `active`).
@@ -99,11 +102,17 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         Route::get('me', [MeController::class, 'show']);
         Route::post('me/presence', AuthPresenceController::class)->middleware('throttle:2,1');
         Route::post('me/profile', [MeController::class, 'complete'])->middleware('throttle:20,1');
+        Route::post('me/phone', [MeController::class, 'attachPhone'])->middleware('throttle:10,1');
         Route::patch('me/role', [MeController::class, 'switchRole'])->middleware('throttle:20,1');
         Route::post('me/push-devices', [PushDeviceController::class, 'store'])->middleware('throttle:30,1');
         Route::delete('me/push-devices', [PushDeviceController::class, 'destroy'])->middleware('throttle:30,1');
         Route::get('subscriptions', [SubscriptionController::class, 'show']);
         Route::post('subscriptions', [SubscriptionController::class, 'store'])->middleware('throttle:10,1');
+
+        // Pieces justificatives du prestataire (role courant).
+        Route::get('me/verification', [VerificationController::class, 'show']);
+        Route::post('me/verification/documents/{type}', [VerificationController::class, 'upload'])
+            ->where('type', '[a-z_]+')->middleware('throttle:20,1');
     });
 
     // ---- Routes authentifiees ----
@@ -171,6 +180,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::post('housing-requests/{housingRequest}/choose', [HousingRequestController::class, 'choose'])->whereNumber('housingRequest');
             Route::post('housing-requests/{housingRequest}/complete', [HousingRequestController::class, 'complete'])->whereNumber('housingRequest');
             Route::post('housing-requests/{housingRequest}/cancel', [HousingRequestController::class, 'cancel'])->whereNumber('housingRequest');
+            Route::post('housing-requests/{housingRequest}/review', [HousingRequestController::class, 'review'])->whereNumber('housingRequest')->middleware('throttle:20,1');
 
             Route::post('consultations', [ConsultationController::class, 'store'])->middleware('throttle:20,1');
             Route::get('consultations', [ConsultationController::class, 'index']);
@@ -178,6 +188,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::post('consultations/{consultation}/choose', [ConsultationController::class, 'choose'])->whereNumber('consultation');
             Route::post('consultations/{consultation}/complete', [ConsultationController::class, 'complete'])->whereNumber('consultation');
             Route::post('consultations/{consultation}/cancel', [ConsultationController::class, 'cancel'])->whereNumber('consultation');
+            Route::post('consultations/{consultation}/review', [ConsultationController::class, 'review'])->whereNumber('consultation')->middleware('throttle:20,1');
 
             Route::post('beauty-requests', [BeautyController::class, 'store'])->middleware('throttle:20,1');
             Route::get('beauty-requests', [BeautyController::class, 'index']);
@@ -185,6 +196,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::post('beauty-requests/{beautyRequest}/choose', [BeautyController::class, 'choose'])->whereNumber('beautyRequest');
             Route::post('beauty-requests/{beautyRequest}/complete', [BeautyController::class, 'complete'])->whereNumber('beautyRequest');
             Route::post('beauty-requests/{beautyRequest}/cancel', [BeautyController::class, 'cancel'])->whereNumber('beautyRequest');
+            Route::post('beauty-requests/{beautyRequest}/review', [BeautyController::class, 'review'])->whereNumber('beautyRequest')->middleware('throttle:20,1');
         });
 
         // ---- Artisan : interventions et appel d'un transporteur ----
@@ -256,6 +268,7 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
         // ---- Soins et beauté : prestations par spécialité ----
         Route::prefix('beaute')->middleware('role:beaute')->group(function () {
             Route::patch('availability', [ChangeurPresenceController::class, 'availability']);
+            Route::post('location', [BeauteBeautyController::class, 'location'])->middleware('throttle:30,1');
             Route::get('dashboard', [BeauteBeautyController::class, 'dashboard']);
             Route::get('requests/available', [BeauteBeautyController::class, 'available']);
             Route::get('requests', [BeauteBeautyController::class, 'index']);
@@ -301,8 +314,10 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
 
         // ---- Passager d'une course (artisan aujourd'hui, client demain) ----
         Route::middleware('role:artisan,client,driver,changeur')->group(function () {
+            Route::get('rides', [RideController::class, 'index']);
             Route::get('rides/{ride}', [RideController::class, 'show'])->whereNumber('ride');
             Route::post('rides/{ride}/cancel', [RideController::class, 'cancel'])->whereNumber('ride');
+            Route::post('rides/{ride}/review', [RideController::class, 'review'])->whereNumber('ride')->middleware('throttle:20,1');
             Route::get('rides/{ride}/tracking', [RideController::class, 'tracking'])->whereNumber('ride')->middleware('throttle:60,1');
         });
 
@@ -380,6 +395,9 @@ Route::prefix('v1')->middleware('throttle:api')->group(function () {
             Route::get('users', [AdminUserController::class, 'index']);
             Route::patch('users/{user}/status', [AdminUserController::class, 'updateStatus']);
             Route::patch('users/{user}/visibility', [AdminUserController::class, 'updateVisibility']);
+            Route::get('verification-documents', [AdminVerificationController::class, 'index']);
+            Route::get('verification-documents/{document}/file', [AdminVerificationController::class, 'file'])->whereNumber('document');
+            Route::patch('verification-documents/{document}', [AdminVerificationController::class, 'review'])->whereNumber('document');
         });
     });
 });

@@ -14,6 +14,7 @@ use App\Models\Review;
 use App\Models\Shop;
 use App\Models\ShopCourier;
 use App\Models\User;
+use App\Services\Notifications\NearbyProviders;
 use App\Services\Notifications\PushNotificationService;
 use App\Services\Subscriptions\SubscriptionService;
 use Illuminate\Database\QueryException;
@@ -346,27 +347,34 @@ class OrderService
         if (! $livreur->is_available) {
             throw new ApiException('Vous êtes hors service. Passez en service pour accepter des courses.', 409, 'livreur_unavailable');
         }
-
-        if (! $livreur->is_available) {
-            throw new ApiException('Vous êtes hors service : passez en service pour prendre une course.', 409, 'livreur_offline');
+        if (! $livreur->hasFreshLocation()) {
+            throw new ApiException('Activez le partage de position avant de prendre une course.', 409, 'location_required');
         }
 
-        $active = Order::where('livreur_id', $livreur->id)
-            ->whereIn('status', [OrderStatus::Preparing, OrderStatus::Ready, OrderStatus::OutForDelivery])->count();
+        DB::transaction(function () use ($order, $livreur) {
+            // Verrou sur le livreur : deux prises simultanees ne peuvent pas depasser le maximum.
+            User::whereKey($livreur->id)->lockForUpdate()->firstOrFail();
 
-        if ($active >= (int) config('shop.livreur_max_active')) {
-            throw new ApiException('Vous avez atteint le nombre maximum de livraisons en cours.', 409, 'too_many_active_deliveries');
-        }
+            $locked = Order::with('shop')->whereKey($order->id)
+                ->visibleToLivreur($livreur->id)
+                ->where('fulfillment_type', FulfillmentType::Delivery)
+                ->whereIn('status', [OrderStatus::Preparing, OrderStatus::Ready])
+                ->lockForUpdate()->first();
+            if ($locked === null) {
+                throw new ApiException('Cette course n’est plus disponible.', 409, 'delivery_unavailable');
+            }
+            if (! self::livreurReaches($livreur, $locked)) {
+                throw new ApiException('Cette boutique est hors de votre zone de service actuelle.', 409, 'outside_service_area');
+            }
 
-        $claimed = Order::where('id', $order->id)
-            ->visibleToLivreur($livreur->id)
-            ->where('fulfillment_type', FulfillmentType::Delivery)
-            ->whereIn('status', [OrderStatus::Preparing, OrderStatus::Ready])
-            ->update(['livreur_id' => $livreur->id, 'offered_livreur_id' => null, 'offer_expires_at' => null]);
+            $active = Order::where('livreur_id', $livreur->id)
+                ->whereIn('status', [OrderStatus::Preparing, OrderStatus::Ready, OrderStatus::OutForDelivery])->count();
+            if ($active >= (int) config('shop.livreur_max_active')) {
+                throw new ApiException('Vous avez atteint le nombre maximum de livraisons en cours.', 409, 'too_many_active_deliveries');
+            }
 
-        if ($claimed === 0) {
-            throw new ApiException('Cette course n\'est plus disponible.', 409, 'delivery_unavailable');
-        }
+            $locked->forceFill(['livreur_id' => $livreur->id, 'offered_livreur_id' => null, 'offer_expires_at' => null])->save();
+        });
 
         $claimed = $order->refresh()->load(['items', 'shop', 'histories', 'customer']);
         $this->notifications->sendToUser(
@@ -383,6 +391,38 @@ class OrderService
         );
 
         return $claimed;
+    }
+
+    /**
+     * Le livreur peut-il prendre cette course ? Il doit avoir une position recente et etre
+     * dans le rayon de la boutique, sauf si la boutique la lui a proposee directement.
+     * Une boutique sans coordonnees ne peut pas etre filtree par distance.
+     */
+    public static function livreurReaches(User $livreur, Order $order): bool
+    {
+        if (! $livreur->hasFreshLocation()) {
+            return false;
+        }
+        if ($order->hasActiveOffer() && $order->offered_livreur_id === $livreur->id) {
+            return true;
+        }
+        $shop = $order->shop;
+        if ($shop === null || ! $shop->hasLocation()) {
+            return true;
+        }
+
+        return Shop::haversineKm($livreur->latitude, $livreur->longitude, $shop->latitude, $shop->longitude)
+            <= (float) config('shop.livreur_radius_km', 15);
+    }
+
+    /**
+     * La course apparait-elle dans la liste du livreur ? Une course qui lui est reservee
+     * s'affiche toujours (meme sans position) ; les autres seulement s'il peut les prendre.
+     */
+    public static function livreurSees(User $livreur, Order $order): bool
+    {
+        return ($order->hasActiveOffer() && $order->offered_livreur_id === $livreur->id)
+            || self::livreurReaches($livreur, $order);
     }
 
     /** Statuts pendant lesquels la boutique peut (re)choisir son mode de recherche de livreur. */
@@ -475,17 +515,34 @@ class OrderService
             return;
         }
 
-        User::query()
-            ->forActiveRole(UserRole::Livreur)
-            ->where('status', 'active')
-            ->where('is_visible', true)
-            ->where('is_available', true)
-            ->each(fn (User $livreur) => $this->notifications->sendToUser(
-                $livreur,
-                'Livraison disponible',
-                "Une commande de {$order->shop?->name} attend un livreur.",
-                ['type' => 'delivery_available', 'order_id' => $order->id],
-            ));
+        $order->loadMissing('shop');
+        $shop = $order->shop;
+
+        // Livreurs les plus proches de la boutique. Sans coordonnees de boutique, on ne peut
+        // pas trier par distance : les livreurs en service avec une position recente sont prevenus.
+        $livreurs = $shop?->hasLocation()
+            ? app(NearbyProviders::class)->find(
+                UserRole::Livreur,
+                (float) $shop->latitude,
+                (float) $shop->longitude,
+                fn (User $livreur) => self::livreurSees($livreur, $order),
+                (float) config('shop.livreur_radius_km', 15),
+            )
+            : User::query()
+                ->forActiveRole(UserRole::Livreur)
+                ->where('status', 'active')
+                ->where('is_visible', true)
+                ->where('is_available', true)
+                ->where('location_updated_at', '>=', now()->subSeconds((int) config('job.stale_seconds', 90)))
+                ->limit(max(1, (int) config('job.notify_max', 10)))
+                ->get();
+
+        $livreurs->each(fn (User $livreur) => $this->notifications->sendToUser(
+            $livreur,
+            'Livraison disponible',
+            "Une commande de {$order->shop?->name} attend un livreur.",
+            ['type' => 'delivery_available', 'order_id' => $order->id],
+        ));
     }
 
     private function lockForDispatch(Order $order, User $owner): Order

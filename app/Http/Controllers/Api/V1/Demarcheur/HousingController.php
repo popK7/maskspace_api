@@ -6,6 +6,7 @@ use App\Enums\HousingStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\HousingRequestResource;
 use App\Models\HousingRequest;
+use App\Services\Reviews\ProviderReviews;
 use App\Services\Housing\HousingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,6 +29,7 @@ class HousingController extends Controller
             'zones' => $zones,
             'open_requests' => $open,
             'assigned' => HousingRequest::where('demarcheur_id', $user->id)->where('status', HousingStatus::Assigned)->count(),
+            ...ProviderReviews::summaryFor(HousingRequest::class, 'demarcheur_id', $user->id),
         ]]);
     }
 

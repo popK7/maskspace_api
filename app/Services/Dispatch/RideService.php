@@ -14,6 +14,7 @@ use App\Models\MoneyTransfer;
 use App\Models\Ride;
 use App\Models\RideOffer;
 use App\Models\User;
+use App\Services\Notifications\NearbyProviders;
 use App\Services\Notifications\PushNotificationService;
 use App\Support\Geo;
 use Illuminate\Support\Carbon;
@@ -24,6 +25,7 @@ class RideService
     public function __construct(
         private readonly LocationPing $ping,
         private readonly PushNotificationService $notifications,
+        private readonly NearbyProviders $nearby,
     ) {}
 
     public function request(User $passenger, array $data): Ride
@@ -55,17 +57,13 @@ class RideService
 
         $recipients = $offer['driver_id'] !== null
             ? User::whereKey($offer['driver_id'])->get()
-            : User::query()
-                ->forActiveRole(UserRole::Driver)
-                ->where('status', UserStatus::Active)
-                ->where('is_visible', true)
-                ->where('is_available', true)
-                ->get()
-                ->filter(fn (User $driver) => Geo::inServiceArea(
-                    $driver,
-                    $ride->pickup_latitude,
-                    $ride->pickup_longitude,
-                ));
+            // Chauffeurs les plus proches du point de prise en charge, sans course en cours.
+            : $this->nearby->find(
+                UserRole::Driver,
+                (float) $ride->pickup_latitude,
+                (float) $ride->pickup_longitude,
+                fn (User $driver) => ! Ride::where('driver_id', $driver->id)->whereIn('status', RideStatus::active())->exists(),
+            );
 
         foreach ($recipients as $driver) {
             $this->notifications->sendToUser(
@@ -211,9 +209,12 @@ class RideService
 
     public function accept(User $driver, Ride $ride): Ride
     {
-        $this->assertDriverReady($driver);
-
         $updatedRide = DB::transaction(function () use ($driver, $ride) {
+            // Verrou sur le transporteur : deux acceptations simultanees de courses
+            // differentes ne peuvent pas passer toutes les deux le controle "course en cours".
+            $driver = User::whereKey($driver->id)->lockForUpdate()->firstOrFail();
+            $this->assertDriverReady($driver);
+
             $ride = Ride::whereKey($ride->id)->lockForUpdate()->firstOrFail();
             if ($ride->status !== RideStatus::Searching) {
                 throw new ApiException('Cette course n’est plus disponible.', 409, 'ride_not_searching');
@@ -345,23 +346,153 @@ class RideService
             if ($ride->status->isFinal()) {
                 throw new ApiException('Cette course est déjà close.', 409, 'ride_closed');
             }
-            $this->cancelLocked($ride, $reason);
+            $this->cancelLocked($ride, $reason, $actor);
 
             return $ride->fresh(['passenger', 'driver.profile']);
         });
     }
 
-    public function cancelLocked(Ride $ride, ?string $reason = null): void
+    /**
+     * Annule une course deja verrouillee : clot les propositions en attente et
+     * previent, une fois la transaction validee, toutes les parties sauf l'auteur.
+     * Sans auteur (annulation en cascade ou expiration), le passager est aussi prevenu.
+     */
+    public function cancelLocked(Ride $ride, ?string $reason = null, ?User $actor = null): void
     {
+        $offeredDriverId = $ride->hasActiveOffer() ? $ride->offered_driver_id : null;
+        $bidderIds = RideOffer::where('ride_id', $ride->id)
+            ->where('status', 'pending')
+            ->pluck('driver_id');
+
         $ride->forceFill([
             'status' => RideStatus::Cancelled,
             'cancel_reason' => $reason,
             'cancelled_at' => now(),
+            'offered_driver_id' => null,
+            'offer_expires_at' => null,
         ])->save();
+
+        RideOffer::where('ride_id', $ride->id)
+            ->where('status', 'pending')
+            ->update(['status' => 'declined']);
 
         if ($ride->driver_id) {
             $this->ping->forget($ride->driver_id);
         }
+
+        $rideId = $ride->id;
+        $passengerId = $ride->passenger_id;
+        $driverIds = collect([$ride->driver_id, $offeredDriverId])
+            ->merge($bidderIds)
+            ->filter()
+            ->unique()
+            ->reject(fn ($id) => $id === $actor?->id)
+            ->values();
+        $notifyPassenger = $passengerId !== $actor?->id;
+
+        DB::afterCommit(function () use ($rideId, $passengerId, $driverIds, $notifyPassenger, $reason) {
+            $data = ['type' => 'ride_status', 'ride_id' => $rideId, 'status' => RideStatus::Cancelled->value];
+
+            foreach (User::whereKey($driverIds->all())->get() as $driver) {
+                $this->notifications->sendToUser(
+                    $driver,
+                    'Course annulée',
+                    $reason ?: 'Cette course a été annulée et n’est plus disponible.',
+                    $data,
+                );
+            }
+
+            if ($notifyPassenger) {
+                $this->notifications->sendToUser(
+                    User::find($passengerId),
+                    'Course annulée',
+                    $reason ?: 'Votre course a été annulée.',
+                    $data,
+                );
+            }
+        });
+    }
+
+    /** Le passager note le transporteur une fois la course terminee (une seule fois). */
+    public function review(User $passenger, Ride $ride, int $rating, ?string $comment = null): Ride
+    {
+        $updated = DB::transaction(function () use ($passenger, $ride, $rating, $comment) {
+            $ride = Ride::whereKey($ride->id)->lockForUpdate()->firstOrFail();
+            if ($ride->passenger_id !== $passenger->id) {
+                throw new ApiException('Course introuvable.', 404, 'ride_not_found');
+            }
+            if ($ride->status !== RideStatus::Completed || $ride->driver_id === null) {
+                throw new ApiException('Vous pourrez noter une fois la course terminée.', 409, 'ride_not_completed');
+            }
+            if ($ride->rating !== null) {
+                throw new ApiException('Vous avez déjà noté cette course.', 409, 'already_reviewed');
+            }
+
+            $ride->forceFill(['rating' => $rating, 'review' => $comment])->save();
+
+            return $ride->fresh(['passenger', 'driver.profile', 'job']);
+        });
+
+        $this->notifications->sendToUser(
+            $updated->driver,
+            'Nouvel avis',
+            "Un passager vous a attribué {$rating}/5.",
+            ['type' => 'ride_review', 'ride_id' => $updated->id],
+        );
+
+        return $updated;
+    }
+
+    /**
+     * Note moyenne des transporteurs sur leurs courses notees.
+     *
+     * @param  list<int>  $driverIds
+     * @return array<int, array{avg: float, count: int}>
+     */
+    public function driverRatings(array $driverIds): array
+    {
+        if ($driverIds === []) {
+            return [];
+        }
+
+        return Ride::whereIn('driver_id', $driverIds)
+            ->whereNotNull('rating')
+            ->selectRaw('driver_id, AVG(rating) as avg, COUNT(*) as n')
+            ->groupBy('driver_id')
+            ->get()
+            ->mapWithKeys(fn ($r) => [(int) $r->driver_id => ['avg' => round((float) $r->avg, 2), 'count' => (int) $r->n]])
+            ->all();
+    }
+
+    /**
+     * Annule les courses restees en recherche trop longtemps (aucun transporteur).
+     * Une offre directe encore valide a un habituel n'est pas interrompue.
+     *
+     * @return int nombre de courses expirees
+     */
+    public function expireStaleSearches(): int
+    {
+        $minutes = max(1, (int) config('job.ride_search_minutes', 15));
+        $expired = 0;
+
+        Ride::where('status', RideStatus::Searching)
+            ->where('created_at', '<=', now()->subMinutes($minutes))
+            ->where(fn ($q) => $q->whereNull('offer_expires_at')->orWhere('offer_expires_at', '<=', now()))
+            ->orderBy('id')
+            ->chunkById(100, function ($rides) use (&$expired) {
+                foreach ($rides as $candidate) {
+                    DB::transaction(function () use ($candidate, &$expired) {
+                        $ride = Ride::whereKey($candidate->id)->lockForUpdate()->first();
+                        if ($ride === null || $ride->status !== RideStatus::Searching || $ride->hasActiveOffer()) {
+                            return;
+                        }
+                        $this->cancelLocked($ride, 'Aucun transporteur n’a été trouvé à temps. Vous pouvez relancer la demande.');
+                        $expired++;
+                    });
+                }
+            });
+
+        return $expired;
     }
 
     /** @return array<string, mixed> */
@@ -474,6 +605,11 @@ class RideService
         $driver->ensureVisible();
         if (! $driver->is_available) {
             throw new ApiException('Passez en service pour prendre une course.', 409, 'driver_offline');
+        }
+        // Meme regle que pour proposer un prix : sans position recente, ni la zone
+        // ni le temps d'arrivee annonce au passager ne sont fiables (offre directe comprise).
+        if (! $driver->hasFreshLocation()) {
+            throw new ApiException('Activez le partage de position avant de prendre une course.', 409, 'location_required');
         }
     }
 }

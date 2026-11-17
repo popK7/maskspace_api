@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
-    'client_id', 'pro_id', 'specialty', 'mode', 'note', 'status',
+    'client_id', 'pro_id', 'specialty', 'mode', 'latitude', 'longitude', 'note', 'status',
     'assigned_at', 'completed_at', 'cancelled_at', 'cancel_reason',
 ])]
 class BeautyRequest extends Model
@@ -21,11 +21,19 @@ class BeautyRequest extends Model
         return [
             'specialty' => BeautySpecialty::class,
             'mode' => BeautyMode::class,
+            'latitude' => 'float',
+            'longitude' => 'float',
             'status' => BeautyStatus::class,
             'assigned_at' => 'datetime',
             'completed_at' => 'datetime',
+            'rating' => 'integer',
             'cancelled_at' => 'datetime',
         ];
+    }
+
+    public function hasLocation(): bool
+    {
+        return $this->latitude !== null && $this->longitude !== null;
     }
 
     public function client(): BelongsTo

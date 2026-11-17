@@ -4,6 +4,7 @@ namespace Tests\Feature\Housing;
 
 use App\Enums\UserRole;
 use App\Models\User;
+use App\Services\Notifications\PushNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\InteractsWithAuth;
 use Tests\Concerns\InteractsWithShop;
@@ -121,6 +122,29 @@ class HousingRequestTest extends TestCase
             ->assertOk()->assertJsonCount(1, 'data');
         $this->api($wrongZoneToken)->getJson('/api/v1/demarcheur/requests/available')
             ->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_only_demarcheurs_covering_the_sector_are_notified(): void
+    {
+        $push = $this->spy(PushNotificationService::class);
+        $local = $this->makeDemarcheur(['gironde', 'maarif']);
+        $elsewhere = $this->makeDemarcheur(['anfa']);
+        $offDuty = $this->makeDemarcheur(['gironde']);
+        $offDuty->forceFill(['is_available' => false])->save();
+
+        $this->api($this->tokenFor($this->makeClient()))
+            ->postJson('/api/v1/housing-requests', ['kind' => 'appartement', 'zone' => 'gironde'])
+            ->assertCreated();
+
+        $push->shouldHaveReceived('sendToUser')
+            ->withArgs(fn (?User $to, string $title) => $to?->is($local) && $title === 'Nouvelle demande de logement')
+            ->once();
+        foreach ([$elsewhere, $offDuty] as $other) {
+            $push->shouldNotHaveReceived('sendToUser', [
+                \Mockery::on(fn ($u) => $u instanceof User && $u->is($other)),
+                'Nouvelle demande de logement', \Mockery::any(), \Mockery::any(),
+            ]);
+        }
     }
 
     protected function makeDemarcheur(array $zones): User

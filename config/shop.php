@@ -7,6 +7,10 @@ return [
     // Nombre maximum de livraisons simultanees pour un livreur.
     'livreur_max_active' => (int) env('LIVREUR_MAX_ACTIVE', 3),
 
+    // Rayon (km) autour du livreur dans lequel il voit et peut prendre les courses des boutiques.
+    // Une course proposee directement par une boutique a son livreur habituel echappe au rayon.
+    'livreur_radius_km' => (float) env('LIVREUR_RADIUS_KM', 15),
+
     // Duree (minutes) pendant laquelle une course proposee a un livreur habituel lui est reservee.
     // Passe ce delai sans reponse, elle redevient visible de tous les livreurs.
     'direct_offer_minutes' => (int) env('SHOP_DIRECT_OFFER_MINUTES', 10),

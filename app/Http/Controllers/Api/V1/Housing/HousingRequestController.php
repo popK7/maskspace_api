@@ -9,6 +9,7 @@ use App\Http\Resources\HousingRequestResource;
 use App\Models\HousingRequest;
 use App\Services\Housing\HousingService;
 use Illuminate\Http\JsonResponse;
+use App\Services\Reviews\ProviderReviews;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Validation\Rule;
@@ -66,6 +67,26 @@ class HousingRequestController extends Controller
     public function complete(Request $request, HousingRequest $housingRequest): HousingRequestResource
     {
         return new HousingRequestResource($this->housing->complete($request->user(), $housingRequest));
+    }
+
+    public function review(Request $request, HousingRequest $housingRequest, ProviderReviews $reviews): HousingRequestResource
+    {
+        $data = $request->validate([
+            'rating' => ['required', 'integer', 'between:1,5'],
+            'comment' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $reviewed = $reviews->review(
+            $housingRequest,
+            'demarcheur_id',
+            $request->user(),
+            (int) $data['rating'],
+            $data['comment'] ?? null,
+            'Demande introuvable.',
+            'Un client vous a attribué',
+        );
+
+        return new HousingRequestResource($reviewed->load(['client', 'demarcheur']));
     }
 
     public function cancel(Request $request, HousingRequest $housingRequest): HousingRequestResource

@@ -28,8 +28,11 @@ class RegisterRequest extends FormRequest
     {
         return [
             'role' => ['sometimes', 'string', Rule::in(UserRole::selfRegistrableValues())],
-            'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')],
-            'phone' => ['required', 'string', 'regex:/^\+?[0-9\s().-]{6,20}$/'],
+            // Inscription par telephone : `firebase_token` prouve le numero (SMS), l'e-mail est facultatif.
+            // Sans jeton, on garde l'ancienne inscription par e-mail (anciennes versions de l'app).
+            'firebase_token' => ['nullable', 'string', 'max:4096'],
+            'email' => ['required_without:firebase_token', 'nullable', 'string', 'email', 'max:255', Rule::unique('users', 'email')],
+            'phone' => ['required_without:firebase_token', 'nullable', 'string', 'regex:/^\+?[0-9\s().-]{6,20}$/'],
             'password' => ['required', 'string', 'confirmed', Password::defaults()],
             'device_name' => ['nullable', 'string', 'max:100'],
         ];

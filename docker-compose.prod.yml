@@ -25,6 +25,18 @@ services:
     depends_on: [app]
     networks: [internal]
 
+  queue:
+    image: maskspace-api-app
+    pull_policy: never
+    restart: unless-stopped
+    env_file: .env
+    # Notifications push en priorite, puis le reste (e-mails OTP...).
+    command: ["php", "artisan", "queue:work", "--queue=notifications,default", "--tries=3", "--max-time=3600"]
+    volumes:
+      - storage_app:/var/www/html/storage/app
+    depends_on: [app]
+    networks: [internal]
+
   nginx:
     build: { context: ., dockerfile: Dockerfile.prod, target: web }
     restart: unless-stopped

@@ -28,6 +28,7 @@ class HousingRequest extends Model
             'guests' => 'integer',
             'assigned_at' => 'datetime',
             'completed_at' => 'datetime',
+            'rating' => 'integer',
             'cancelled_at' => 'datetime',
         ];
     }

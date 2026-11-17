@@ -4,6 +4,7 @@ namespace Tests\Feature\Beauty;
 
 use App\Enums\UserRole;
 use App\Models\User;
+use App\Services\Notifications\PushNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\InteractsWithAuth;
 use Tests\Concerns\InteractsWithShop;
@@ -80,6 +81,39 @@ class BeautyRequestTest extends TestCase
         $this->api($other)->postJson("/api/v1/beaute/requests/{$id}/offer", [
             'message' => 'Je peux quand même vous coiffer.',
         ])->assertStatus(403)->assertJsonPath('code', 'specialty_not_covered');
+    }
+
+    public function test_pro_sees_the_nearest_clients_first_and_only_within_reach(): void
+    {
+        $push = $this->spy(PushNotificationService::class);
+        $pro = $this->makeBeaute(['coiffeur']);
+        $pro->forceFill(['latitude' => 33.5890, 'longitude' => -7.6200, 'location_updated_at' => now()])->save();
+        $farPro = $this->makeBeaute(['coiffeur']);
+        $farPro->forceFill(['latitude' => 34.0209, 'longitude' => -6.8416, 'location_updated_at' => now()])->save(); // Rabat
+        $client = $this->tokenFor($this->makeClient());
+
+        $publish = fn (float $lat, float $lng) => $this->api($client)->postJson('/api/v1/beauty-requests', [
+            'specialty' => 'coiffeur', 'mode' => 'salon', 'latitude' => $lat, 'longitude' => $lng,
+        ])->assertCreated()->json('data.id');
+        $farther = $publish(33.5890, -7.6700); // ~4,6 km
+        $closest = $publish(33.5895, -7.6210); // ~0,1 km
+        $outside = $publish(34.0300, -6.8400); // Rabat, hors rayon du pro
+
+        $this->api($this->tokenFor($pro))->getJson('/api/v1/beaute/requests/available')
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.id', $closest)
+            ->assertJsonPath('data.1.id', $farther);
+        $this->api($this->tokenFor($pro))->postJson("/api/v1/beaute/requests/{$outside}/offer", [
+            'message' => 'Je peux venir demain matin.',
+        ])->assertForbidden()->assertJsonPath('code', 'beauty_outside_service_area');
+
+        $push->shouldHaveReceived('sendToUser')
+            ->withArgs(fn (?User $to, string $title) => $to?->is($pro) && $title === 'Nouvelle demande beauté')
+            ->twice();
+        $push->shouldHaveReceived('sendToUser')
+            ->withArgs(fn (?User $to, string $title) => $to?->is($farPro) && $title === 'Nouvelle demande beauté')
+            ->once();
     }
 
     protected function makeBeaute(array $specialties): User

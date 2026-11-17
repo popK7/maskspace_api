@@ -9,19 +9,71 @@ use App\Exceptions\ApiException;
 use App\Models\BeautyOffer;
 use App\Models\BeautyRequest;
 use App\Models\User;
+use App\Services\Notifications\NearbyProviders;
+use App\Support\Geo;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class BeautyService
 {
+    public function __construct(private readonly NearbyProviders $nearby) {}
+
     public function publish(User $client, array $data): BeautyRequest
     {
-        return BeautyRequest::create([
+        $request = BeautyRequest::create([
             'client_id' => $client->id,
             'specialty' => $data['specialty'],
             'mode' => $data['mode'] ?? 'salon',
+            'latitude' => $data['latitude'] ?? null,
+            'longitude' => $data['longitude'] ?? null,
             'note' => $data['note'] ?? null,
             'status' => BeautyStatus::Searching,
         ]);
+
+        // Pros de la prestation les plus proches (demande sans position : aucune notification,
+        // elle reste visible dans la liste par specialite comme avant).
+        if ($request->hasLocation()) {
+            $this->nearby->notify(
+                UserRole::Beaute,
+                $request->latitude,
+                $request->longitude,
+                'Nouvelle demande beauté',
+                'Un client près de vous cherche un professionnel.',
+                ['type' => 'beauty_request', 'beauty_request_id' => $request->id],
+                fn (User $pro) => in_array($request->specialty->value, $this->specialtiesOf($pro), true),
+            );
+        }
+
+        return $request;
+    }
+
+    /**
+     * Demandes ouvertes proposees a un pro : sa specialite, et dans son rayon quand la
+     * demande a une position (il lui faut alors une position recente).
+     *
+     * @return Collection<int, BeautyRequest>
+     */
+    public function availableFor(User $pro, int $limit = 30): Collection
+    {
+        return BeautyRequest::with(['client', 'offers.pro'])
+            ->where('status', BeautyStatus::Searching)
+            ->whereIn('specialty', $this->specialtiesOf($pro))
+            ->latest('id')
+            ->limit(200)
+            ->get()
+            ->filter(fn (BeautyRequest $request) => $this->reaches($pro, $request))
+            // Le client le plus proche d'abord ; les demandes sans position (anciennes versions) a la fin.
+            ->sortBy(fn (BeautyRequest $request) => $request->hasLocation() && $pro->hasFreshLocation()
+                ? Geo::km($pro->latitude, $pro->longitude, $request->latitude, $request->longitude)
+                : INF)
+            ->take($limit)
+            ->values();
+    }
+
+    private function reaches(User $pro, BeautyRequest $request): bool
+    {
+        return ! $request->hasLocation()
+            || Geo::inServiceArea($pro, $request->latitude, $request->longitude);
     }
 
     public function offer(User $pro, BeautyRequest $request, string $message): BeautyOffer
@@ -135,6 +187,12 @@ class BeautyService
         }
         if (! in_array($request->specialty->value, $this->specialtiesOf($pro), true)) {
             throw new ApiException('Cette prestation n’est pas la vôtre.', 403, 'specialty_not_covered');
+        }
+        if ($request->hasLocation() && ! $pro->hasFreshLocation()) {
+            throw new ApiException('Activez le partage de position pour répondre.', 409, 'location_required');
+        }
+        if (! $this->reaches($pro, $request)) {
+            throw new ApiException('Cette demande est hors de votre zone de service.', 403, 'beauty_outside_service_area');
         }
     }
 }

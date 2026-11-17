@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use App\Models\HousingOffer;
 use App\Models\HousingRequest;
+use App\Services\Reviews\ProviderReviews;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -17,6 +18,9 @@ class HousingRequestResource extends JsonResource
         if ($viewer && $viewer->id !== $this->client_id) {
             $offers = $offers->where('demarcheur_id', $viewer->id)->values();
         }
+        $ratings = $viewer && $viewer->id === $this->client_id && $offers->isNotEmpty()
+            ? ProviderReviews::averages(HousingRequest::class, 'demarcheur_id', $offers->pluck('demarcheur_id')->map(fn ($id) => (int) $id)->unique()->values()->all())
+            : [];
 
         return [
             'id' => $this->id,
@@ -40,6 +44,8 @@ class HousingRequestResource extends JsonResource
                 'demarcheur' => $offer->relationLoaded('demarcheur') && $offer->demarcheur ? [
                     'id' => $offer->demarcheur->id,
                     'name' => $offer->demarcheur->name,
+                    'rating' => $ratings[$offer->demarcheur->id]['avg'] ?? null,
+                    'rating_count' => $ratings[$offer->demarcheur->id]['count'] ?? 0,
                 ] : null,
             ])->values(),
             'client' => $this->when($this->relationLoaded('client') && $this->client, fn () => [
@@ -53,6 +59,8 @@ class HousingRequestResource extends JsonResource
                     ? $this->demarcheur->phone
                     : null,
             ]),
+            'rating' => $this->rating,
+            'review' => $this->review,
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }

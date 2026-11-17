@@ -87,9 +87,14 @@ trait InteractsWithShop
         return User::factory()->create();
     }
 
-    protected function makeLivreur(): User
+    /** Livreur avec une position recente, a cote des boutiques de test. */
+    protected function makeLivreur(array $attrs = []): User
     {
-        return User::factory()->role(UserRole::Livreur)->withProfile()->create();
+        return User::factory()->role(UserRole::Livreur)->withProfile()->create(array_merge([
+            'latitude' => 33.5730,
+            'longitude' => -7.6200,
+            'location_updated_at' => now(),
+        ], $attrs));
     }
 
     /** Jeton d'acces pour un utilisateur (sans passer par /login). */

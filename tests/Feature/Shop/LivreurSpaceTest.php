@@ -5,6 +5,7 @@ namespace Tests\Feature\Shop;
 use App\Models\Order;
 use App\Models\ShopCourier;
 use App\Models\User;
+use App\Services\Notifications\PushNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\InteractsWithAuth;
 use Tests\Concerns\InteractsWithShop;
@@ -61,6 +62,59 @@ class LivreurSpaceTest extends TestCase
 
         $this->api($l)->patchJson('/api/v1/livreur/availability', [])->assertUnprocessable();
         $this->api($this->tokenFor($this->makeClient()))->patchJson('/api/v1/livreur/availability', ['is_available' => true])->assertForbidden();
+    }
+
+    public function test_livreur_needs_a_fresh_location_to_take_a_delivery(): void
+    {
+        [, , $id] = $this->preparingOrder();
+        $l = $this->tokenFor($this->makeLivreur(['location_updated_at' => now()->subMinutes(10)]));
+
+        $this->api($l)->getJson('/api/v1/livreur/deliveries/available')->assertOk()
+            ->assertJsonCount(0, 'data')->assertJsonPath('meta.location_required', true);
+        $this->api($l)->postJson("/api/v1/livreur/deliveries/{$id}/accept")
+            ->assertStatus(409)->assertJsonPath('code', 'location_required');
+        $this->assertNull(Order::find($id)->livreur_id);
+    }
+
+    public function test_far_livreur_only_gets_deliveries_offered_to_him_directly(): void
+    {
+        [$merchant, $m, $id] = $this->preparingOrder();
+        // Rabat : ~85 km de la boutique de Casablanca.
+        $far = $this->makeLivreur(['latitude' => 34.0209, 'longitude' => -6.8416]);
+        $l = $this->tokenFor($far);
+
+        $this->api($l)->getJson('/api/v1/livreur/deliveries/available')->assertOk()
+            ->assertJsonCount(0, 'data')->assertJsonPath('meta.location_required', false);
+        $this->api($l)->postJson("/api/v1/livreur/deliveries/{$id}/accept")
+            ->assertStatus(409)->assertJsonPath('code', 'outside_service_area');
+
+        ShopCourier::create(['shop_id' => $merchant->shop->id, 'livreur_id' => $far->id]);
+        $this->api($m)->postJson("/api/v1/merchant/orders/{$id}/dispatch", ['mode' => 'courier', 'livreur_id' => $far->id])
+            ->assertOk();
+
+        $this->api($l)->getJson('/api/v1/livreur/deliveries/available')->assertOk()
+            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.reserved_for_me', true);
+        $this->api($l)->postJson("/api/v1/livreur/deliveries/{$id}/accept")->assertOk();
+        $this->assertSame($far->id, Order::find($id)->livreur_id);
+    }
+
+    public function test_only_nearby_livreurs_are_notified_of_a_new_delivery(): void
+    {
+        $push = $this->spy(PushNotificationService::class);
+        $near = $this->makeLivreur();
+        $far = $this->makeLivreur(['latitude' => 34.0209, 'longitude' => -6.8416]); // Rabat
+        $stale = $this->makeLivreur(['location_updated_at' => now()->subMinutes(10)]);
+
+        $this->preparingOrder();
+
+        $sent = fn (User $u) => fn (?User $to, string $title) => $to?->is($u) && $title === 'Livraison disponible';
+        $push->shouldHaveReceived('sendToUser')->withArgs($sent($near))->once();
+        foreach ([$far, $stale] as $other) {
+            $push->shouldNotHaveReceived('sendToUser', [
+                \Mockery::on(fn ($u) => $u instanceof User && $u->is($other)),
+                'Livraison disponible', \Mockery::any(), \Mockery::any(),
+            ]);
+        }
     }
 
     public function test_cannot_offer_a_course_to_an_off_duty_courier(): void

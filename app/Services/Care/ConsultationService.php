@@ -9,15 +9,18 @@ use App\Exceptions\ApiException;
 use App\Models\Consultation;
 use App\Models\ConsultationOffer;
 use App\Models\User;
+use App\Services\Notifications\NearbyProviders;
 use App\Support\Geo;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class ConsultationService
 {
+    public function __construct(private readonly NearbyProviders $nearby) {}
+
     public function publish(User $client, array $data): Consultation
     {
-        return Consultation::create([
+        $consultation = Consultation::create([
             'client_id' => $client->id,
             'specialty' => $data['specialty'],
             'mode' => $data['mode'] ?? 'cabinet',
@@ -27,6 +30,19 @@ class ConsultationService
             'note' => $data['note'] ?? null,
             'status' => ConsultationStatus::Searching,
         ]);
+
+        // Medecins de la specialite les plus proches.
+        $this->nearby->notify(
+            UserRole::Medecin,
+            (float) $consultation->latitude,
+            (float) $consultation->longitude,
+            'Nouvelle demande de consultation',
+            'Un patient près de vous cherche un médecin.',
+            ['type' => 'consultation_request', 'consultation_id' => $consultation->id],
+            fn (User $medecin) => in_array($consultation->specialty->value, $this->specialtiesOf($medecin), true),
+        );
+
+        return $consultation;
     }
 
     public function offer(User $medecin, Consultation $consultation, string $message): ConsultationOffer

@@ -8,8 +8,10 @@ use App\Http\Requests\Auth\CompleteProfileRequest;
 use App\Http\Requests\Auth\UpdateProfileRequest;
 use App\Http\Resources\UserResource;
 use App\Enums\UserRole;
+use App\Exceptions\ApiException;
 use App\Models\User;
 use App\Services\Auth\AuthService;
+use App\Services\Auth\PhoneIdentity;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -26,12 +28,31 @@ class MeController extends Controller
         return new UserResource($request->user()->load(['profile', 'roles']));
     }
 
+    /** POST /me/phone — associe un numero confirme par SMS (Firebase) ; il devient l'identifiant de connexion. */
+    public function attachPhone(Request $request): UserResource
+    {
+        $data = $request->validate(['firebase_token' => ['required', 'string', 'max:4096']]);
+        $user = $this->auth->attachVerifiedPhone($request->user(), $data['firebase_token']);
+
+        return new UserResource($user->load(['profile', 'roles']));
+    }
+
     /** PATCH /me — mise a jour partielle des informations du compte courant. */
     public function update(UpdateProfileRequest $request): UserResource
     {
         /** @var User $user */
         $user = $request->user();
         $data = $request->validated();
+
+        // Le numero verifie sert d'identifiant : il ne change que via POST /me/phone (code SMS).
+        if (array_key_exists('phone', $data) && $user->phone_number !== null
+            && PhoneIdentity::normalize($data['phone']) !== $user->phone_number) {
+            throw new ApiException(
+                'Pour changer de numéro, confirmez le nouveau numéro par SMS.',
+                422,
+                'phone_change_requires_sms',
+            );
+        }
 
         DB::transaction(function () use ($user, $data) {
             $user->fill(array_intersect_key($data, array_flip(['name', 'phone'])))->save();

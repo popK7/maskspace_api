@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\User;
+use App\Services\Verification\ProviderVerificationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -27,12 +28,16 @@ class UserResource extends JsonResource
                     ->all(),
             ])),
             'status' => $this->status->value,
-            'email_verified' => $this->hasVerifiedEmail(),
+            'email_verified' => $this->email !== null && $this->hasVerifiedEmail(),
+            'phone_verified' => $this->phone_verified_at !== null,
             'profile_completed' => $this->hasCompletedProfile(),
             'profile_completion' => $this->profileCompletionPercent(),
             'is_visible' => (bool) $this->is_visible,
             'is_available' => (bool) $this->is_available,
             'activation_requested' => $this->activation_requested_at !== null,
+            // Pieces justificatives a faire valider avant de pouvoir passer en ligne.
+            'verification_required' => ProviderVerificationService::requiresVerification($this->role)
+                && $this->roles->firstWhere('role', $this->role)?->verified_at === null,
             'profile' => $profile ? [
                 'shop_name' => $profile->shop_name,
                 'vehicle_model' => $profile->vehicle_model,

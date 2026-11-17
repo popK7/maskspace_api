@@ -3,12 +3,23 @@
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\User;
+use App\Services\Dispatch\RideService;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schedule;
 
 // Purge des refresh tokens expires/revoques et des codes OTP perimes.
 Schedule::command('model:prune')->daily();
+
+// Courses restees sans transporteur : annulees et passager prevenu.
+Artisan::command('makspace:expire-rides', function (RideService $rides) {
+    $count = $rides->expireStaleSearches();
+    $this->info("{$count} course(s) expirée(s).");
+
+    return 0;
+})->purpose('Annule les courses restees en recherche au-dela de job.ride_search_minutes');
+
+Schedule::command('makspace:expire-rides')->everyMinute()->withoutOverlapping();
 
 Artisan::command('makspace:create-admin {email} {name=Admin}', function (string $email, string $name) {
     $password = $this->secret('Mot de passe (min. 8 caracteres, lettres + chiffres)');

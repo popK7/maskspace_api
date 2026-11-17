@@ -66,6 +66,8 @@ class RideResource extends JsonResource
                     'expires_at' => $this->offer_expires_at?->toIso8601String(),
                 ],
             ),
+            'rating' => $this->rating,
+            'review' => $this->review,
             'accepted_at' => $this->accepted_at?->toIso8601String(),
             'picked_up_at' => $this->picked_up_at?->toIso8601String(),
             'completed_at' => $this->completed_at?->toIso8601String(),

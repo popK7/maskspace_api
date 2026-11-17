@@ -11,6 +11,7 @@ use App\Models\LodgingBooking;
 use App\Models\User;
 use App\Services\Media\ImageStorage;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -103,8 +104,8 @@ class LodgingService
             throw new ApiException('Cette annonce n’est plus disponible.', 409, 'lodging_unavailable');
         }
 
-        $checkIn = \Illuminate\Support\Carbon::parse($data['check_in'])->startOfDay();
-        $checkOut = \Illuminate\Support\Carbon::parse($data['check_out'])->startOfDay();
+        $checkIn = Carbon::parse($data['check_in'])->startOfDay();
+        $checkOut = Carbon::parse($data['check_out'])->startOfDay();
         if ($checkOut->lte($checkIn)) {
             throw new ApiException('La date de départ doit être après l’arrivée.', 422, 'invalid_dates');
         }
@@ -233,7 +234,7 @@ class LodgingService
         });
     }
 
-    private function units(Lodging $lodging, \Illuminate\Support\Carbon $checkIn, \Illuminate\Support\Carbon $checkOut): int
+    private function units(Lodging $lodging, Carbon $checkIn, Carbon $checkOut): int
     {
         if ($lodging->billing === RentalBilling::Month) {
             $cursor = $checkIn->copy();
